@@ -8,10 +8,14 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@shared': path.resolve(__dirname, '../shared')
-    }
+    },
+    extensions: ['.ts', '.js', '.vue', '.json']
   },
   server: {
     port: 5173,
+    fs: {
+      allow: ['..']
+    },
     proxy: {
       '/socket.io': {
         target: 'http://localhost:3001',
@@ -21,6 +25,9 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: 'dist'
+    outDir: 'dist',
+    rollupOptions: {
+      external: []
+    }
   }
 })

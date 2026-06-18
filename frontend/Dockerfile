@@ -1,8 +1,9 @@
-FROM node:20-alpine as builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
 COPY ./frontend/package.json ./
+COPY ./frontend/.npmrc ./
 RUN npm install
 
 COPY ./shared ../shared
