@@ -134,15 +134,27 @@ export class RedisStore {
 
   async saveReplayWithAI(replay: GameReplayWithAI): Promise<void> {
     const key = `${this.REPLAY_WITH_AI_PREFIX}${replay.gameId}`;
-    await this.redis.set(key, JSON.stringify(replay), 'EX', this.AI_REPLAY_EXPIRY);
+    console.log(`[RedisStore] Saving AI replay for game ${replay.gameId}, AI players: ${replay.aiReplayData?.length || 0}, total turns: ${replay.totalTurns}`);
     
-    await this.redis.lpush(this.RECENT_AI_REPLAYS_KEY, replay.gameId);
-    await this.redis.ltrim(this.RECENT_AI_REPLAYS_KEY, 0, this.RECENT_AI_REPLAYS_MAX - 1);
-    
-    const remainingIds = await this.redis.lrange(this.RECENT_AI_REPLAYS_KEY, this.RECENT_AI_REPLAYS_MAX, -1);
-    for (const oldGameId of remainingIds) {
-      const oldKey = `${this.REPLAY_WITH_AI_PREFIX}${oldGameId}`;
-      await this.redis.del(oldKey);
+    try {
+      const jsonData = JSON.stringify(replay);
+      console.log(`[RedisStore] AI replay JSON size: ${(jsonData.length / 1024).toFixed(2)} KB`);
+      await this.redis.set(key, jsonData, 'EX', this.AI_REPLAY_EXPIRY);
+      
+      await this.redis.lpush(this.RECENT_AI_REPLAYS_KEY, replay.gameId);
+      await this.redis.ltrim(this.RECENT_AI_REPLAYS_KEY, 0, this.RECENT_AI_REPLAYS_MAX - 1);
+      
+      const remainingIds = await this.redis.lrange(this.RECENT_AI_REPLAYS_KEY, this.RECENT_AI_REPLAYS_MAX, -1);
+      for (const oldGameId of remainingIds) {
+        const oldKey = `${this.REPLAY_WITH_AI_PREFIX}${oldGameId}`;
+        await this.redis.del(oldKey);
+        console.log(`[RedisStore] Cleaned up old AI replay for game ${oldGameId}`);
+      }
+      
+      console.log(`[RedisStore] AI replay saved successfully for game ${replay.gameId}`);
+    } catch (err) {
+      console.error(`[RedisStore] Failed to save AI replay for game ${replay.gameId}:`, err);
+      throw err;
     }
     
     await this.saveReplay(replay);
@@ -150,9 +162,20 @@ export class RedisStore {
 
   async getReplayWithAIById(gameId: string): Promise<GameReplayWithAI | null> {
     const key = `${this.REPLAY_WITH_AI_PREFIX}${gameId}`;
+    console.log(`[RedisStore] Fetching AI replay for game ${gameId}`);
     const data = await this.redis.get(key);
-    if (!data) return null;
-    return JSON.parse(data);
+    if (!data) {
+      console.warn(`[RedisStore] No AI replay data found for game ${gameId}`);
+      return null;
+    }
+    try {
+      const replay = JSON.parse(data) as GameReplayWithAI;
+      console.log(`[RedisStore] AI replay loaded for game ${gameId}, AI players: ${replay.aiReplayData?.length || 0}, turns: ${replay.totalTurns}`);
+      return replay;
+    } catch (err) {
+      console.error(`[RedisStore] Failed to parse AI replay for game ${gameId}:`, err);
+      return null;
+    }
   }
 
   async checkAIReplayValid(gameId: string): Promise<boolean> {

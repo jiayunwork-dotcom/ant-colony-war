@@ -75,7 +75,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import type { Player } from '@shared/types'
 
 const props = defineProps<{
@@ -88,34 +88,71 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'restart'): void
-  (e: 'showAIReplay'): void
+  (e: 'showAIReplay', gameId: string): void
 }>()
 
-const aiReplayValid = ref(true)
+const aiReplayValid = ref(false)
 const checkingValidity = ref(false)
-
-watch(() => props.show, async (newVal) => {
-  if (newVal && props.gameId) {
-    checkingValidity.value = true
-    try {
-      const response = await fetch(`/api/replays/${props.gameId}/ai/valid`)
-      const data = await response.json()
-      aiReplayValid.value = data.valid
-    } catch (e) {
-      aiReplayValid.value = false
-    } finally {
-      checkingValidity.value = false
-    }
-  }
-})
+const hasChecked = ref(false)
 
 const hasAIPlayers = computed(() => {
   return props.players.some(p => p.name.startsWith('AI-'))
 })
 
+async function checkReplayValidity() {
+  if (!props.gameId || !hasAIPlayers.value) {
+    checkingValidity.value = false
+    aiReplayValid.value = false
+    return
+  }
+  
+  if (hasChecked.value) {
+    return
+  }
+  
+  checkingValidity.value = true
+  hasChecked.value = true
+  console.log('[GameOverModal] Starting AI replay validity check for game', props.gameId)
+  
+  try {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 3000)
+    
+    const response = await fetch(`/api/replays/${props.gameId}/ai/valid`, {
+      signal: controller.signal
+    })
+    clearTimeout(timeoutId)
+    
+    const data = await response.json()
+    aiReplayValid.value = !!data.valid
+    console.log('[GameOverModal] AI replay validity check result:', aiReplayValid.value)
+  } catch (e) {
+    console.warn('[GameOverModal] AI replay validity check failed:', e)
+    aiReplayValid.value = false
+  } finally {
+    checkingValidity.value = false
+  }
+}
+
+watch(() => props.show, (newShow) => {
+  if (newShow) {
+    hasChecked.value = false
+    if (props.gameId && hasAIPlayers.value) {
+      checkReplayValidity()
+    }
+  }
+})
+
+onMounted(() => {
+  if (props.show && props.gameId) {
+    hasChecked.value = false
+    checkReplayValidity()
+  }
+})
+
 function handleShowAIReplay() {
-  if (aiReplayValid.value && !checkingValidity.value) {
-    emit('showAIReplay')
+  if (aiReplayValid.value && !checkingValidity.value && props.gameId) {
+    emit('showAIReplay', props.gameId)
   }
 }
 

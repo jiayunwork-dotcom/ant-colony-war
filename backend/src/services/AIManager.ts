@@ -113,6 +113,8 @@ export class AIManager {
     const aiList = this.aiPlayers.get(gameId);
     if (!aiList || aiList.length === 0) return;
 
+    console.log(`[AIManager] Processing AI turns for game ${gameId}, turn ${state.turn}, AI count: ${aiList.length}`);
+
     for (const aiInfo of aiList) {
       const player = game.getPlayer(aiInfo.playerId);
       if (!player || player.isEliminated) continue;
@@ -121,20 +123,40 @@ export class AIManager {
 
       setTimeout(() => {
         const currentState = game.getState();
-        if (currentState.phase !== 'command') return;
+        if (currentState.phase !== 'command') {
+          console.log(`[AIManager] Skip AI ${aiInfo.name} - phase is ${currentState.phase}`);
+          return;
+        }
 
         const player = game.getPlayer(aiInfo.playerId);
-        if (!player || player.isEliminated || player.isReady) return;
+        if (!player || player.isEliminated) {
+          console.log(`[AIManager] Skip AI ${aiInfo.name} - player eliminated`);
+          return;
+        }
+        if (player.isReady) {
+          console.log(`[AIManager] Skip AI ${aiInfo.name} - already ready`);
+          return;
+        }
 
         const result = aiInfo.controller.generateCommand(currentState);
+        console.log(`[AIManager] AI ${aiInfo.name} generated command for turn ${currentState.turn}, hasDecision: ${!!result.decision}, antDecisions: ${result.decision?.antDecisions?.length || 0}`);
+
+        if (result.decision && onDecisionRecorded) {
+          try {
+            onDecisionRecorded(aiInfo.playerId, result.decision);
+            console.log(`[AIManager] AI ${aiInfo.name} decision recorded for turn ${currentState.turn}`);
+          } catch (err) {
+            console.error(`[AIManager] Failed to record decision for AI ${aiInfo.name}:`, err);
+          }
+        }
+
         const success = game.submitCommand(result.command);
 
         if (success) {
-          if (result.decision && onDecisionRecorded) {
-            onDecisionRecorded(aiInfo.playerId, result.decision);
-          }
           onCommandSubmitted(result.command);
-          console.log(`[AIManager] AI ${aiInfo.name} submitted command for turn ${currentState.turn}`);
+          console.log(`[AIManager] AI ${aiInfo.name} command submitted successfully for turn ${currentState.turn}`);
+        } else {
+          console.warn(`[AIManager] AI ${aiInfo.name} submitCommand failed for turn ${currentState.turn}`);
         }
       }, AI_COMMAND_DELAY);
     }

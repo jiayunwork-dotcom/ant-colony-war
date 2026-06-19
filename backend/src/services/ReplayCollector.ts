@@ -30,8 +30,10 @@ export class ReplayCollector {
   recordAITurnDecision(playerId: string, decision: AITurnDecision): void {
     if (!this.aiDecisions.has(playerId)) {
       this.aiDecisions.set(playerId, []);
+      console.log(`[ReplayCollector] Initialized AI decision storage for player ${playerId} in game ${this.gameId}`);
     }
     this.aiDecisions.get(playerId)!.push(decision);
+    console.log(`[ReplayCollector] Recorded AI decision for player ${playerId}, turn ${decision.turn}, total decisions for this player: ${this.aiDecisions.get(playerId)!.length}`);
   }
 
   clearTurnEvents(): void {
@@ -113,11 +115,17 @@ export class ReplayCollector {
     const aiReplayData: AIReplayData[] = [];
     const endTime = Date.now();
 
+    console.log(`[ReplayCollector] Building AI replay for game ${this.gameId}, AI players with decisions: ${this.aiDecisions.size}`);
+
     for (const [playerId, decisions] of this.aiDecisions.entries()) {
       const player = players.find(p => p.id === playerId);
-      if (!player) continue;
+      if (!player) {
+        console.warn(`[ReplayCollector] Player ${playerId} not found in players list, skipping`);
+        continue;
+      }
 
       const sortedDecisions = [...decisions].sort((a, b) => a.turn - b.turn);
+      console.log(`[ReplayCollector] Player ${player.name} (${playerId}) has ${sortedDecisions.length} AI decisions`);
       
       aiReplayData.push({
         gameId: this.gameId,
@@ -130,6 +138,8 @@ export class ReplayCollector {
         endTime
       });
     }
+
+    console.log(`[ReplayCollector] AI replay built, total AI players: ${aiReplayData.length}`);
 
     return {
       ...baseReplay,
