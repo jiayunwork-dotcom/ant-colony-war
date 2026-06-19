@@ -264,11 +264,7 @@ export const useGameStore = defineStore('game', () => {
 
   async function fetchRoomList() {
     try {
-      const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:'
-      const host = window.location.hostname
-      const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80')
-      const url = `${protocol}//${host}:${port}/api/rooms`
-      const response = await fetch(url)
+      const response = await fetch('/api/rooms')
       const data = await response.json()
       if (data.success) {
         roomList.value = data.rooms
