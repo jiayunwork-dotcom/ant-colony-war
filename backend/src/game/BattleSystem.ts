@@ -1,4 +1,4 @@
-import { Ant, HexCoord, Player, HexCell, Predator } from '../../../shared/types';
+import { Ant, HexCoord, Player, HexCell, Predator, BattleEventRecord } from '../../../shared/types';
 import {
   BATTLE_NUM_ADVANTAGE_MAX,
   BATTLE_WORKER_DAMAGE_MULTIPLIER,
@@ -173,9 +173,10 @@ export class BattleSystem {
     return kills;
   }
 
-  resolveAllBattles(players: Player[]): { messages: string[]; killCounts: Record<string, number> } {
+  resolveAllBattles(players: Player[]): { messages: string[]; killCounts: Record<string, number>; battleDetails: BattleEventRecord[] } {
     const messages: string[] = [];
     const killCounts: Record<string, number> = {};
+    const battleDetails: BattleEventRecord[] = [];
 
     for (const player of players) {
       killCounts[player.id] = 0;
@@ -230,11 +231,21 @@ export class BattleSystem {
           killCounts[playerIds[j]] += result.defenderKills;
 
           messages.push(...result.messages);
+
+          battleDetails.push({
+            attackerId: playerIds[i],
+            defenderId: playerIds[j],
+            attackerAntCount: attackers.length,
+            defenderAntCount: defenders.length,
+            attackerKills: result.attackerKills,
+            defenderKills: result.defenderKills,
+            position
+          });
         }
       }
     }
 
-    return { messages, killCounts };
+    return { messages, killCounts, battleDetails };
   }
 
   attackNest(attackers: Ant[], player: Player): { damage: number; canAttack: boolean } {

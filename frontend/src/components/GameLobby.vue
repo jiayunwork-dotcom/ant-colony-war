@@ -122,6 +122,12 @@
         </div>
       </div>
 
+      <div class="lobby-actions">
+        <button class="btn btn-history" @click="$emit('show-history')">
+          📜 对局历史
+        </button>
+      </div>
+
       <div class="game-rules">
         <h3 class="rules-title">🎮 游戏简介</h3>
         <div class="rules-grid">
@@ -163,6 +169,7 @@ const emit = defineEmits<{
   (e: 'roomCreated', gameId: string, playerId: string): void
   (e: 'roomJoined', gameId: string, playerId: string): void
   (e: 'error', message: string): void
+  (e: 'show-history'): void
 }>()
 
 const props = defineProps<{
@@ -519,6 +526,28 @@ async function quickJoin(targetRoomId: string) {
   border-radius: 10px;
   background: rgba(78, 205, 196, 0.15);
   color: #4ecdc4;
+}
+
+.lobby-actions {
+  margin-top: 20px;
+  text-align: center;
+}
+
+.btn-history {
+  padding: 12px 32px;
+  font-size: 15px;
+  font-weight: 600;
+  background: rgba(78, 205, 196, 0.15);
+  color: #4ecdc4;
+  border: 1px solid rgba(78, 205, 196, 0.3);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-history:hover {
+  background: rgba(78, 205, 196, 0.25);
+  border-color: #4ecdc4;
 }
 
 .game-rules {

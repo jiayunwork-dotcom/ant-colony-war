@@ -9,7 +9,10 @@ import {
   AntType,
   MutationType,
   Predator,
-  PLAYER_COLORS
+  PLAYER_COLORS,
+  GameReplay,
+  BattleEventRecord,
+  EcoEventRecord
 } from '../../../shared/types';
 import {
   MAP_SIZE,
@@ -31,6 +34,7 @@ import { EconomySystem, MovementSystem } from './EconomySystem';
 import { EventSystem, EvolutionSystem } from './EventSystem';
 import { PlayerFactory } from './factories';
 import { hexRange } from '../../../shared/utils/hex';
+import { ReplayCollector } from '../services/ReplayCollector';
 
 export class GameEngine {
   private state: GameState;
@@ -42,6 +46,9 @@ export class GameEngine {
   private eventSystem: EventSystem;
   private evolutionSystem: EvolutionSystem;
   private commands: Map<string, PlayerCommand>;
+  private replayCollector: ReplayCollector;
+  private currentTurnBattles: BattleEventRecord[] = [];
+  private currentTurnEcoEvents: EcoEventRecord[] = [];
 
   constructor(gameId?: string) {
     console.log('[GameEngine] Starting initialization...');
@@ -78,6 +85,7 @@ export class GameEngine {
     this.movementSystem = new MovementSystem(map, MAP_SIZE, this.pheromoneSystem);
     this.eventSystem = new EventSystem(map, MAP_SIZE);
     this.evolutionSystem = new EvolutionSystem();
+    this.replayCollector = new ReplayCollector(this.state.id);
     console.log('[GameEngine] Initialization complete, gameId:', this.state.id);
   }
 
@@ -178,6 +186,9 @@ export class GameEngine {
     this.state.phase = 'settling';
     this.addEventLog(`第 ${this.state.turn} 回合结算中...`, 'info');
 
+    this.currentTurnBattles = [];
+    this.currentTurnEcoEvents = [];
+
     this.executeCommands();
 
     for (const player of this.getAlivePlayers()) {
@@ -212,6 +223,10 @@ export class GameEngine {
       }
     }
 
+    for (const detail of battleResult.battleDetails) {
+      this.currentTurnBattles.push(detail);
+    }
+
     this.processNestAttacks();
     this.addEventLog('战斗阶段完成', 'info');
 
@@ -236,6 +251,8 @@ export class GameEngine {
 
     this.removeDeadAnts();
     this.checkEliminations();
+
+    this.collectTurnSnapshot();
 
     this.checkVictory();
 
@@ -365,6 +382,25 @@ export class GameEngine {
         this.addEventLog(msg, 'event');
       }
 
+      if (this.state.currentEvent.type === 'rain') {
+        const affectedCoords: HexCoord[] = [];
+        for (const row of this.state.map) {
+          for (const cell of row) {
+            if (cell.temporaryWater !== undefined && cell.temporaryWater > 0) {
+              affectedCoords.push({ ...cell.coord });
+            }
+          }
+        }
+        const affectedPlayerIds = this.state.players
+          .filter(p => !p.isEliminated && p.ants.some(a => a.hp > 0))
+          .map(p => p.id);
+        this.currentTurnEcoEvents.push({
+          eventType: this.state.currentEvent.type,
+          affectedCoords,
+          affectedPlayerIds
+        });
+      }
+
       if (this.state.currentEvent.turnsRemaining > 0) {
         this.state.currentEvent.turnsRemaining--;
       }
@@ -389,6 +425,22 @@ export class GameEngine {
         if (activationResult.predator) {
           this.state.predator = activationResult.predator;
         }
+
+        const ecoAffectedCoords: HexCoord[] = [];
+        if (this.state.nextEvent.center) {
+          ecoAffectedCoords.push(this.state.nextEvent.center);
+        }
+        const ecoAffectedPlayerIds: string[] = [];
+        if (activationResult.affectedPlayer) {
+          ecoAffectedPlayerIds.push(activationResult.affectedPlayer);
+        } else {
+          this.state.players.filter(p => !p.isEliminated).forEach(p => ecoAffectedPlayerIds.push(p.id));
+        }
+        this.currentTurnEcoEvents.push({
+          eventType: this.state.nextEvent.type,
+          affectedCoords: ecoAffectedCoords,
+          affectedPlayerIds: ecoAffectedPlayerIds
+        });
 
         this.state.currentEvent = {
           ...this.state.nextEvent,
@@ -472,6 +524,47 @@ export class GameEngine {
         this.addEventLog(`${player.name} 被淘汰了！`, 'battle');
       }
     }
+  }
+
+  private collectTurnSnapshot(): void {
+    const territoryCounts = new Map<string, number>();
+    for (const player of this.state.players) {
+      territoryCounts.set(player.id, this.pheromoneSystem.getPlayerTerritoryCount(player.id));
+    }
+    this.replayCollector.clearTurnEvents();
+    for (const battle of this.currentTurnBattles) {
+      this.replayCollector.recordBattle(battle);
+    }
+    for (const ecoEvent of this.currentTurnEcoEvents) {
+      this.replayCollector.recordEcoEvent(ecoEvent);
+    }
+    this.replayCollector.collectTurnSnapshot(
+      this.state.turn,
+      this.state.players,
+      territoryCounts,
+    );
+  }
+
+  buildGameReplay(): GameReplay {
+    const scoreDetails = this.state.players.map(player => {
+      const breakdown = this.getScoreBreakdown(player);
+      return {
+        playerId: player.id,
+        playerName: player.name,
+        territory: breakdown.territory,
+        food: breakdown.food,
+        kills: breakdown.kills,
+        survivors: breakdown.survivors,
+        total: breakdown.total
+      };
+    });
+
+    return this.replayCollector.buildGameReplay(
+      this.state.players,
+      this.state.winner || '',
+      scoreDetails,
+      this.state.turn
+    );
   }
 
   private checkVictory(): void {

@@ -1,5 +1,6 @@
 import { Server, Socket } from 'socket.io';
 import { gameRoomManager } from '../services/GameRoomManager';
+import { redisStore } from '../services/RedisStoreInstance';
 import { PlayerCommand } from '../../../shared/types';
 import { COMMAND_TIME_LIMIT } from '../../../shared/constants';
 
@@ -307,7 +308,16 @@ export function setupSocketHandlers(io: Server): void {
 
     io.to(gameId).emit('turn_processed', { state });
 
-    if (state.phase !== 'ended') {
+    if (state.phase === 'ended') {
+      try {
+        const replay = game.buildGameReplay();
+        redisStore.saveReplay(replay).catch(err => {
+          console.error('[Socket] Failed to save replay for game', gameId, err);
+        });
+      } catch (err) {
+        console.error('[Socket] Failed to build replay for game', gameId, err);
+      }
+    } else {
       startTurnTimer(io, gameId);
     }
   }

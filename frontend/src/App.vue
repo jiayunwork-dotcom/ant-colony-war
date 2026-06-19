@@ -1,13 +1,19 @@
 <template>
   <div class="app">
+    <GameHistory
+      v-if="showHistory"
+      @back="showHistory = false"
+    />
+
     <GameLobby
-      v-if="!gameState"
+      v-else-if="!gameState"
       :on-create-room="handleCreateRoom"
       :on-join-room="handleJoinRoom"
       :rooms="roomList"
       :on-quick-join="handleQuickJoin"
       @room-created="onRoomCreated"
       @room-joined="onRoomJoined"
+      @show-history="showHistory = true"
     />
 
     <WaitingLobby
@@ -84,6 +90,7 @@ import HexMap from './components/HexMap.vue'
 import ControlPanel from './components/ControlPanel.vue'
 import EventLog from './components/EventLog.vue'
 import GameOverModal from './components/GameOverModal.vue'
+import GameHistory from './components/GameHistory.vue'
 import type { HexCoord, HexCell, AntType, FacilityType, MutationType } from '@shared/types'
 
 const gameStore = useGameStore()
@@ -98,6 +105,8 @@ const {
   selectedAnts,
   roomList
 } = storeToRefs(gameStore)
+
+const showHistory = ref(false)
 
 let timerInterval: number | null = null
 

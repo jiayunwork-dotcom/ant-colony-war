@@ -1,9 +1,13 @@
 import Redis from 'ioredis';
-import { GameState, PlayerCommand } from '../../../shared/types';
+import { GameState, PlayerCommand, GameReplay, GameReplaySummary } from '../../../shared/types';
 
 export class RedisStore {
   private redis: Redis;
   private readonly KEY_PREFIX = 'ant_war:';
+  private readonly REPLAY_PREFIX = 'replay:';
+  private readonly RECENT_GAMES_KEY = 'recent_games';
+  private readonly RECENT_GAMES_MAX = 20;
+  private readonly REPLAY_EXPIRY = 86400;
 
   constructor(host: string = 'localhost', port: number = 6379) {
     this.redis = new Redis({ host, port });
@@ -82,6 +86,46 @@ export class RedisStore {
   async removePlayerFromSocket(socketId: string): Promise<void> {
     const key = `${this.KEY_PREFIX}socket:${socketId}`;
     await this.redis.del(key);
+  }
+
+  async saveReplay(replay: GameReplay): Promise<void> {
+    const key = `${this.REPLAY_PREFIX}${replay.gameId}`;
+    await this.redis.set(key, JSON.stringify(replay), 'EX', this.REPLAY_EXPIRY);
+    await this.redis.lpush(this.RECENT_GAMES_KEY, replay.gameId);
+    await this.redis.ltrim(this.RECENT_GAMES_KEY, 0, this.RECENT_GAMES_MAX - 1);
+  }
+
+  async getReplayById(gameId: string): Promise<GameReplay | null> {
+    const key = `${this.REPLAY_PREFIX}${gameId}`;
+    const data = await this.redis.get(key);
+    if (!data) return null;
+    return JSON.parse(data);
+  }
+
+  async getRecentGames(): Promise<GameReplaySummary[]> {
+    const gameIds = await this.redis.lrange(this.RECENT_GAMES_KEY, 0, -1);
+    const summaries: GameReplaySummary[] = [];
+
+    for (const gameId of gameIds) {
+      const key = `${this.REPLAY_PREFIX}${gameId}`;
+      const data = await this.redis.get(key);
+      if (!data) continue;
+
+      const replay: GameReplay = JSON.parse(data);
+      const winnerName = replay.playerNames[replay.playerIds.indexOf(replay.winnerId)] || '未知';
+
+      summaries.push({
+        gameId: replay.gameId,
+        startTime: replay.startTime,
+        playerNames: replay.playerNames,
+        playerColors: replay.playerColors,
+        winnerId: replay.winnerId,
+        winnerName,
+        totalTurns: replay.totalTurns
+      });
+    }
+
+    return summaries;
   }
 
   async disconnect(): Promise<void> {

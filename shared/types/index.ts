@@ -149,6 +149,77 @@ export const PLAYER_COLORS = [
   '#DDA0DD'
 ];
 
+export interface PlayerSnapshot {
+  playerId: string;
+  playerName: string;
+  food: number;
+  workerCount: number;
+  soldierCount: number;
+  scoutCount: number;
+  territoryCount: number;
+  hatcheryLevel: number;
+  storageLevel: number;
+  barracksLevel: number;
+  labLevel: number;
+}
+
+export interface BattleEventRecord {
+  attackerId: string;
+  defenderId: string;
+  attackerAntCount: number;
+  defenderAntCount: number;
+  attackerKills: number;
+  defenderKills: number;
+  position: HexCoord;
+}
+
+export interface EcoEventRecord {
+  eventType: EventType;
+  affectedCoords: HexCoord[];
+  affectedPlayerIds: string[];
+}
+
+export interface TurnRecord {
+  turn: number;
+  timestamp: number;
+  playerSnapshots: PlayerSnapshot[];
+  battleEvents: BattleEventRecord[];
+  ecoEvents: EcoEventRecord[];
+}
+
+export interface ScoreDetail {
+  playerId: string;
+  playerName: string;
+  territory: number;
+  food: number;
+  kills: number;
+  survivors: number;
+  total: number;
+}
+
+export interface GameReplay {
+  gameId: string;
+  startTime: number;
+  endTime: number;
+  playerIds: string[];
+  playerNames: string[];
+  playerColors: string[];
+  winnerId: string;
+  scoreDetails: ScoreDetail[];
+  totalTurns: number;
+  turns: TurnRecord[];
+}
+
+export interface GameReplaySummary {
+  gameId: string;
+  startTime: number;
+  playerNames: string[];
+  playerColors: string[];
+  winnerId: string;
+  winnerName: string;
+  totalTurns: number;
+}
+
 export interface RoomInfo {
   gameId: string;
   hostName: string;
