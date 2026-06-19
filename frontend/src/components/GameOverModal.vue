@@ -60,11 +60,11 @@
         <button 
           class="btn btn-secondary" 
           @click="handleShowAIReplay"
-          :disabled="!aiReplayValid || checkingValidity || !hasAIPlayers"
+          :disabled="!aiReplayValid || checkingValidity || isLoadingReplay || !hasAIPlayers"
           :class="{ 'btn-disabled': !aiReplayValid || !hasAIPlayers }"
           :title="!hasAIPlayers ? '本局没有AI玩家' : !aiReplayValid ? '复盘数据已过期' : ''"
         >
-          {{ checkingValidity ? '检查中...' : !hasAIPlayers ? '无AI数据' : !aiReplayValid ? '复盘数据已过期' : '🤖 AI复盘' }}
+          {{ isLoadingReplay ? '加载中...' : checkingValidity ? '检查中...' : !hasAIPlayers ? '无AI数据' : !aiReplayValid ? '复盘数据已过期' : '🤖 AI复盘' }}
         </button>
         <button class="btn btn-primary" @click="$emit('restart')">
           返回大厅
@@ -94,6 +94,7 @@ const emit = defineEmits<{
 const aiReplayValid = ref(false)
 const checkingValidity = ref(false)
 const hasChecked = ref(false)
+const isLoadingReplay = ref(false)
 
 const hasAIPlayers = computed(() => {
   return props.players.some(p => p.name.startsWith('AI-'))
@@ -137,6 +138,7 @@ async function checkReplayValidity() {
 watch(() => props.show, (newShow) => {
   if (newShow) {
     hasChecked.value = false
+    isLoadingReplay.value = false
     if (props.gameId && hasAIPlayers.value) {
       checkReplayValidity()
     }
@@ -146,12 +148,15 @@ watch(() => props.show, (newShow) => {
 onMounted(() => {
   if (props.show && props.gameId) {
     hasChecked.value = false
+    isLoadingReplay.value = false
     checkReplayValidity()
   }
 })
 
-function handleShowAIReplay() {
-  if (aiReplayValid.value && !checkingValidity.value && props.gameId) {
+async function handleShowAIReplay() {
+  if (aiReplayValid.value && !checkingValidity.value && !isLoadingReplay.value && props.gameId) {
+    isLoadingReplay.value = true
+    console.log('[GameOverModal] Emitting showAIReplay with gameId:', props.gameId)
     emit('showAIReplay', props.gameId)
   }
 }

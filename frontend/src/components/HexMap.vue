@@ -41,7 +41,7 @@
               'is-target': isTargetCell(cell),
               'has-food': cell.terrain === 'food',
               'is-rock': cell.terrain === 'rock',
-              'is-water': cell.terrain === 'water' || cell.temporaryWater,
+              'is-water': cell.terrain === 'water' || hasCellTemporaryWater(cell),
               'readonly': props.readonly
             }"
           >
@@ -61,7 +61,7 @@
             />
 
             <circle
-              v-if="cell.terrain === 'food' && cell.foodSource"
+              v-if="cell.terrain === 'food' && getCellFoodAmount(cell) !== undefined"
               cx="0"
               cy="0"
               :r="hexSize * 0.4"
@@ -69,14 +69,14 @@
               class="food-indicator"
             />
             <text
-              v-if="cell.terrain === 'food' && cell.foodSource"
+              v-if="cell.terrain === 'food' && getCellFoodAmount(cell) !== undefined"
               x="0"
               y="4"
               text-anchor="middle"
               font-size="10"
               fill="#333"
               font-weight="bold"
-            >{{ cell.foodSource.amount }}</text>
+            >{{ getCellFoodAmount(cell) }}</text>
 
             <g v-if="cell.nest" class="nest-marker">
               <circle cx="0" cy="0" :r="hexSize * 0.5" :fill="getPlayerColor(cell.nest)" stroke="#fff" stroke-width="2" />
@@ -174,15 +174,48 @@
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useGameStore } from '@/stores/game'
 import { storeToRefs } from 'pinia'
-import type { HexCell, HexCoord, Ant, Player, Predator, ThreatMatrix, AntDecision, AntType } from '@shared/types'
+import type { HexCell, SlimHexCell, HexCoord, Ant, Player, Predator, ThreatMatrix, AntDecision, AntType } from '@shared/types'
 import { hexToPixel, getHexCorners, hexDistance } from '@shared/utils/hex'
+
+type AnyHexCell = HexCell | SlimHexCell
+
+function isSlimCell(cell: AnyHexCell): cell is SlimHexCell {
+  return 'owner' in cell && !('territoryMarkers' in cell)
+}
+
+function getCellOwner(cell: AnyHexCell): string | null {
+  if (isSlimCell(cell)) {
+    return cell.owner || null
+  }
+  let maxPlayer: string | null = null
+  let maxValue = 0.1
+  for (const [playerId, value] of Object.entries(cell.territoryMarkers)) {
+    if (value > maxValue) {
+      maxValue = value
+      maxPlayer = playerId
+    }
+  }
+  return maxPlayer
+}
+
+function getCellFoodAmount(cell: AnyHexCell): number | undefined {
+  if (isSlimCell(cell)) {
+    return cell.foodAmount
+  }
+  return cell.foodSource?.amount
+}
+
+function hasCellTemporaryWater(cell: AnyHexCell): boolean {
+  if (isSlimCell(cell)) return false
+  return !!cell.temporaryWater
+}
 
 const props = defineProps<{
   hexSize?: number
   readonly?: boolean
   threatMatrix?: ThreatMatrix | null
   antDecisions?: AntDecision[]
-  overrideMap?: HexCell[][]
+  overrideMap?: AnyHexCell[][]
   overridePlayers?: Player[]
   selectedAIPlayerId?: string
 }>()
@@ -314,46 +347,35 @@ const movePathD = computed(() => {
   return `M ${start.x} ${start.y} L ${end.x} ${end.y}`
 })
 
-function getCellFill(cell: HexCell): string {
-  const territoryOwner = getTerritoryOwner(cell)
+function getCellFill(cell: AnyHexCell): string {
+  const territoryOwner = getCellOwner(cell)
 
   if (cell.terrain === 'rock') {
     return '#4a4a4a'
   }
 
-  if (cell.terrain === 'water' || cell.temporaryWater) {
-    return cell.temporaryWater ? '#5DADE2' : '#3498db'
+  if (cell.terrain === 'water' || hasCellTemporaryWater(cell)) {
+    return hasCellTemporaryWater(cell) ? '#5DADE2' : '#3498db'
   }
 
   let baseColor = '#2d3436'
 
   if (territoryOwner) {
     const color = getPlayerColor(territoryOwner)
-    const intensity = Math.min(cell.territoryMarkers[territoryOwner] || 0, 3) / 3
-    return mixColors(baseColor, color, intensity * 0.4)
+    let intensity = 0.4
+    if (!isSlimCell(cell)) {
+      intensity = Math.min(cell.territoryMarkers[territoryOwner] || 0, 3) / 3 * 0.4
+    }
+    return mixColors(baseColor, color, intensity)
   }
 
   return baseColor
 }
 
-function getCellStroke(cell: HexCell): string {
+function getCellStroke(cell: AnyHexCell): string {
   if (cell.terrain === 'rock') return '#333'
   if (cell.terrain === 'water') return '#2980b9'
   return '#3d3d3d'
-}
-
-function getTerritoryOwner(cell: HexCell): string | null {
-  let maxPlayer: string | null = null
-  let maxValue = 0.1
-
-  for (const [playerId, value] of Object.entries(cell.territoryMarkers)) {
-    if (value > maxValue) {
-      maxValue = value
-      maxPlayer = playerId
-    }
-  }
-
-  return maxPlayer
 }
 
 function getPlayerColor(playerId: string): string {
@@ -569,12 +591,12 @@ function drawMinimap() {
 
       if (cell.terrain === 'rock') {
         ctx.fillStyle = '#4a4a4a'
-      } else if (cell.terrain === 'water' || cell.temporaryWater) {
+      } else if (cell.terrain === 'water' || hasCellTemporaryWater(cell)) {
         ctx.fillStyle = '#3498db'
       } else if (cell.terrain === 'food') {
         ctx.fillStyle = '#FFD93D'
       } else {
-        const owner = getTerritoryOwner(cell)
+        const owner = getCellOwner(cell)
         if (owner) {
           ctx.fillStyle = getPlayerColor(owner) + '60'
         } else {

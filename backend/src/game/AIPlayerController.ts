@@ -8,6 +8,7 @@ import {
   UpgradeCommand,
   HexCoord,
   HexCell,
+  SlimHexCell,
   Ant,
   AntType,
   AIDifficulty,
@@ -103,7 +104,7 @@ export class AIPlayerController {
     const validatedUpgrade = this.validateUpgradeCommands(upgradeCommands, player);
 
     const playerSnapshot = this.createPlayerSnapshot(player, state);
-    const mapSnapshot = JSON.parse(JSON.stringify(state.map));
+    const mapSnapshot = this.createSlimMapSnapshot(state.map, state.players);
 
     const decision: AITurnDecision = {
       turn: state.turn,
@@ -131,6 +132,35 @@ export class AIPlayerController {
       },
       decision
     };
+  }
+
+  private createSlimMapSnapshot(map: HexCell[][], players: Player[]): SlimHexCell[][] {
+    const territoryOwnerMap: Record<string, string> = {};
+    for (const player of players) {
+      for (let r = 0; r < map.length; r++) {
+        for (let q = 0; q < map[r].length; q++) {
+          const cell = map[r][q];
+          const key = `${q},${r}`;
+          const marker = cell.territoryMarkers[player.id] || 0;
+          if (marker > 0 && (!territoryOwnerMap[key] || (cell.territoryMarkers[territoryOwnerMap[key]] || 0) < marker)) {
+            territoryOwnerMap[key] = player.id;
+          }
+        }
+      }
+    }
+
+    return map.map((row, r) =>
+      row.map((cell, q): SlimHexCell => {
+        const key = `${q},${r}`;
+        return {
+          coord: cell.coord,
+          terrain: cell.terrain,
+          foodAmount: cell.foodSource?.amount,
+          nest: cell.nest,
+          owner: territoryOwnerMap[key]
+        };
+      })
+    );
   }
 
   private createPlayerSnapshot(player: Player, state: GameState): PlayerSnapshot {

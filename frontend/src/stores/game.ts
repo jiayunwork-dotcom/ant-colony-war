@@ -375,12 +375,23 @@ export const useGameStore = defineStore('game', () => {
 
   async function fetchAIReplayData(gameId: string): Promise<{ success: boolean; data?: GameReplayWithAI; error?: string }> {
     isLoadingAIReplay.value = true
+    console.log('[GameStore] Fetching AI replay data for game:', gameId)
     try {
-      const response = await fetch(`/api/replays/${gameId}/ai`)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 15000)
+      
+      const response = await fetch(`/api/replays/${gameId}/ai`, {
+        signal: controller.signal
+      })
+      clearTimeout(timeoutId)
+      
       const data = await response.json()
+      console.log('[GameStore] AI replay response received, success:', data.success, 'has replay:', !!data.replay, 'replay size:', JSON.stringify(data.replay || '').length, 'bytes')
+      
       if (data.success && data.replay) {
         aiReplayData.value = data.replay
         isLoadingAIReplay.value = false
+        console.log('[GameStore] AI replay data loaded successfully, AI players:', data.replay.aiReplayData?.length || 0)
         return { success: true, data: data.replay }
       }
       isLoadingAIReplay.value = false
@@ -388,7 +399,10 @@ export const useGameStore = defineStore('game', () => {
     } catch (e) {
       console.error('[GameStore] Failed to fetch AI replay data:', e)
       isLoadingAIReplay.value = false
-      return { success: false, error: '网络错误' }
+      if (e instanceof Error && e.name === 'AbortError') {
+        return { success: false, error: '请求超时，请重试' }
+      }
+      return { success: false, error: e instanceof Error ? e.message : '网络错误' }
     }
   }
 

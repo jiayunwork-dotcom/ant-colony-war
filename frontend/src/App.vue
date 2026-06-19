@@ -229,9 +229,19 @@ function handleRestart() {
 }
 
 async function handleShowAIReplay(gameId: string) {
-  const result = await gameStore.fetchAIReplayData(gameId)
-  if (result.success && result.data) {
-    gameStore.openAIReplay()
+  console.log('[App] handleShowAIReplay called with gameId:', gameId)
+  try {
+    const result = await gameStore.fetchAIReplayData(gameId)
+    console.log('[App] fetchAIReplayData result:', result)
+    if (result.success && result.data) {
+      console.log('[App] Opening AI replay page')
+      gameStore.openAIReplay()
+    } else {
+      alert(`复盘数据加载失败：${result.error || '未知错误'}`)
+    }
+  } catch (e) {
+    console.error('[App] handleShowAIReplay error:', e)
+    alert(`复盘数据加载异常：${e instanceof Error ? e.message : String(e)}`)
   }
 }
 

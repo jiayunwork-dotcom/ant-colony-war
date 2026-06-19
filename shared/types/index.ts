@@ -14,6 +14,14 @@ export interface HexCell {
   temporaryWater?: number;
 }
 
+export interface SlimHexCell {
+  coord: HexCoord;
+  terrain: TerrainType;
+  foodAmount?: number;
+  nest?: string;
+  owner?: string;
+}
+
 export type TerrainType = 'ground' | 'rock' | 'water' | 'food';
 
 export interface FoodSource {
@@ -296,7 +304,7 @@ export interface AITurnDecision {
   produceDecisions: ProduceDecision[];
   upgradeDecisions: UpgradeDecision[];
   totalFood: number;
-  mapSnapshot: HexCell[][];
+  mapSnapshot: SlimHexCell[][];
   playerSnapshot: PlayerSnapshot;
 }
 
