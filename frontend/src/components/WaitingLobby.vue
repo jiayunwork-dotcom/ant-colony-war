@@ -20,18 +20,46 @@
             v-for="player in players"
             :key="player.id"
             class="player-card"
-            :class="{ 'is-self': player.id === playerId, 'is-host': player.id === hostId }"
+            :class="{ 'is-self': player.id === playerId, 'is-host': player.id === hostId, 'is-ai': isAIPlayer(player.id) }"
           >
             <div class="player-identity">
               <div class="player-color-dot" :style="{ background: player.color }"></div>
               <span class="player-name">{{ player.name }}</span>
               <span v-if="player.id === hostId" class="host-badge">房主</span>
               <span v-if="player.id === playerId" class="self-badge">你</span>
+              <span v-if="isAIPlayer(player.id)" class="ai-badge">🤖 AI</span>
             </div>
-            <div class="player-ready-status" :class="{ ready: player.lobbyReady }">
-              {{ player.lobbyReady ? '已准备' : '未准备' }}
+            <div class="player-actions">
+              <div class="player-ready-status" :class="{ ready: player.lobbyReady }">
+                {{ player.lobbyReady ? '已准备' : '未准备' }}
+              </div>
+              <button
+                v-if="isHost && isAIPlayer(player.id)"
+                class="btn-remove-ai"
+                @click="$emit('removeAI', player.id)"
+                title="移除AI"
+              >
+                ✕
+              </button>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div v-if="isHost && players.length < 6" class="ai-section">
+        <div class="ai-controls">
+          <select v-model="selectedDifficulty" class="ai-difficulty-select">
+            <option value="easy">简单 AI</option>
+            <option value="normal">普通 AI</option>
+            <option value="hard">困难 AI</option>
+          </select>
+          <button
+            class="btn btn-add-ai"
+            @click="$emit('addAI', selectedDifficulty)"
+            :disabled="players.length >= 6"
+          >
+            ➕ 添加AI
+          </button>
         </div>
       </div>
 
@@ -52,6 +80,7 @@
 
       <div class="action-bar">
         <button
+          v-if="!isCurrentPlayerAI"
           class="btn btn-ready"
           :class="{ 'is-ready': currentPlayer?.lobbyReady }"
           @click="$emit('toggleReady')"
@@ -80,8 +109,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import type { Player } from '@shared/types'
+import { ref, computed } from 'vue'
+import type { Player, AIDifficulty } from '@shared/types'
 
 const props = defineProps<{
   gameId: string
@@ -89,13 +118,18 @@ const props = defineProps<{
   hostId: string
   players: Player[]
   isHost: boolean
+  aiPlayerIds: string[]
 }>()
 
 defineEmits<{
   (e: 'toggleReady'): void
   (e: 'startGame'): void
   (e: 'leaveRoom'): void
+  (e: 'addAI', difficulty: AIDifficulty): void
+  (e: 'removeAI', playerId: string): void
 }>()
+
+const selectedDifficulty = ref<AIDifficulty>('normal')
 
 const currentPlayer = computed(() => {
   return props.players.find(p => p.id === props.playerId) || null
@@ -112,6 +146,14 @@ const allReady = computed(() => {
 const canStart = computed(() => {
   return props.isHost && props.players.length >= 4 && allReady.value
 })
+
+const isCurrentPlayerAI = computed(() => {
+  return props.aiPlayerIds.includes(props.playerId)
+})
+
+function isAIPlayer(playerId: string): boolean {
+  return props.aiPlayerIds.includes(playerId)
+}
 </script>
 
 <style scoped>
@@ -234,6 +276,11 @@ const canStart = computed(() => {
   border-left: 3px solid #e94560;
 }
 
+.player-card.is-ai {
+  background: rgba(155, 135, 245, 0.06);
+  border-color: rgba(155, 135, 245, 0.2);
+}
+
 .player-identity {
   display: flex;
   align-items: center;
@@ -269,6 +316,42 @@ const canStart = computed(() => {
   background: rgba(78, 205, 196, 0.2);
   color: #4ecdc4;
   font-weight: 600;
+}
+
+.ai-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(155, 135, 245, 0.2);
+  color: #9b87f5;
+  font-weight: 600;
+}
+
+.player-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-remove-ai {
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(233, 69, 96, 0.2);
+  color: #e94560;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  padding: 0;
+  line-height: 1;
+}
+
+.btn-remove-ai:hover {
+  background: rgba(233, 69, 96, 0.4);
 }
 
 .player-ready-status {
@@ -309,6 +392,64 @@ const canStart = computed(() => {
 
 .info-icon {
   font-size: 16px;
+}
+
+.ai-section {
+  background: rgba(155, 135, 245, 0.08);
+  border-radius: 12px;
+  padding: 16px;
+  border: 1px solid rgba(155, 135, 245, 0.2);
+}
+
+.ai-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.ai-difficulty-select {
+  flex: 1;
+  padding: 10px 14px;
+  border: 2px solid rgba(155, 135, 245, 0.3);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  color: #e0e0e0;
+  font-size: 14px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+.ai-difficulty-select:focus {
+  border-color: #9b87f5;
+}
+
+.ai-difficulty-select option {
+  background: #1a1a2e;
+  color: #e0e0e0;
+}
+
+.btn-add-ai {
+  padding: 10px 20px;
+  background: rgba(155, 135, 245, 0.2);
+  color: #9b87f5;
+  border: 2px solid rgba(155, 135, 245, 0.3);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn-add-ai:hover:not(:disabled) {
+  background: rgba(155, 135, 245, 0.3);
+  border-color: #9b87f5;
+}
+
+.btn-add-ai:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .action-bar {

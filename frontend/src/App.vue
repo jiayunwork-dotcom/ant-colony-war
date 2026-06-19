@@ -23,9 +23,12 @@
       :host-id="gameState.hostId"
       :players="gameState.players"
       :is-host="isHost"
+      :ai-player-ids="aiPlayerIds"
       @toggle-ready="handleToggleReady"
       @start-game="handleStartGame"
       @leave-room="handleLeaveRoom"
+      @add-ai="handleAddAI"
+      @remove-ai="handleRemoveAI"
     />
 
     <template v-else>
@@ -91,7 +94,7 @@ import ControlPanel from './components/ControlPanel.vue'
 import EventLog from './components/EventLog.vue'
 import GameOverModal from './components/GameOverModal.vue'
 import GameHistory from './components/GameHistory.vue'
-import type { HexCoord, HexCell, AntType, FacilityType, MutationType } from '@shared/types'
+import type { HexCoord, HexCell, AntType, FacilityType, MutationType, AIDifficulty } from '@shared/types'
 
 const gameStore = useGameStore()
 const {
@@ -103,7 +106,8 @@ const {
   timeRemaining,
   sortedEventLog,
   selectedAnts,
-  roomList
+  roomList,
+  aiPlayerIds
 } = storeToRefs(gameStore)
 
 const showHistory = ref(false)
@@ -193,6 +197,14 @@ function clearSelection() {
 async function handleLeaveRoom() {
   await gameStore.leaveRoom()
   gameStore.startRoomListPolling()
+}
+
+async function handleAddAI(difficulty: AIDifficulty) {
+  await gameStore.addAIPlayer(difficulty)
+}
+
+async function handleRemoveAI(playerId: string) {
+  await gameStore.removeAIPlayer(playerId)
 }
 
 function handleRestart() {

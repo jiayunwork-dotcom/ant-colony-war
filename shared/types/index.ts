@@ -227,3 +227,22 @@ export interface RoomInfo {
   maxPlayers: number;
   phase: GamePhase;
 }
+
+export type AIDifficulty = 'easy' | 'normal' | 'hard';
+
+export interface AIPlayerConfig {
+  difficulty: AIDifficulty;
+  playerId: string;
+  name: string;
+}
+
+export interface ThreatMatrix {
+  [key: string]: number;
+}
+
+export interface AICache {
+  threatMatrix: ThreatMatrix | null;
+  threatMatrixTurn: number;
+  visibleCells: Set<string> | null;
+  visibleCellsTurn: number;
+}

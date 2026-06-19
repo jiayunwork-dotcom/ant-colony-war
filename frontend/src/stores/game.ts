@@ -11,7 +11,8 @@ import type {
   AntType,
   FacilityType,
   MutationType,
-  RoomInfo
+  RoomInfo,
+  AIDifficulty
 } from '@shared/types'
 
 export const useGameStore = defineStore('game', () => {
@@ -24,6 +25,7 @@ export const useGameStore = defineStore('game', () => {
   const moveTarget = ref<HexCoord | null>(null)
   const isHost = ref(false)
   const roomList = ref<RoomInfo[]>([])
+  const aiPlayerIds = ref<string[]>([])
   let roomListTimer: number | null = null
 
   const currentPlayer = computed(() => {
@@ -50,6 +52,16 @@ export const useGameStore = defineStore('game', () => {
     if (!gameState.value) return [] as EventLogEntry[]
     return [...gameState.value.eventLog].reverse()
   })
+
+  function updateAIPlayerIds() {
+    if (!gameState.value) {
+      aiPlayerIds.value = []
+      return
+    }
+    aiPlayerIds.value = gameState.value.players
+      .filter(p => p.name.startsWith('AI-'))
+      .map(p => p.id)
+  }
 
   function connect() {
     if (socket.value && isConnected.value) return
@@ -83,6 +95,7 @@ export const useGameStore = defineStore('game', () => {
       console.log('[GameStore] player_joined event, players:', data.players.length)
       if (gameState.value) {
         gameState.value.players = data.players
+        updateAIPlayerIds()
       }
     })
 
@@ -96,6 +109,7 @@ export const useGameStore = defineStore('game', () => {
             isHost.value = true
           }
         }
+        updateAIPlayerIds()
       }
     })
 
@@ -158,6 +172,7 @@ export const useGameStore = defineStore('game', () => {
         playerId.value = response.playerId
         gameState.value = response.state
         isHost.value = true
+        updateAIPlayerIds()
         console.log('[GameStore] createRoom success, gameId:', response.gameId)
       } else {
         console.error('[GameStore] createRoom failed:', response?.error)
@@ -173,9 +188,32 @@ export const useGameStore = defineStore('game', () => {
         playerId.value = response.playerId
         gameState.value = response.state
         isHost.value = gameState.value.hostId === response.playerId
+        updateAIPlayerIds()
         console.log('[GameStore] joinRoom success, gameId:', response.gameId)
       } else {
         console.error('[GameStore] joinRoom failed:', response?.error)
+      }
+      return response
+    })
+  }
+
+  function addAIPlayer(difficulty: AIDifficulty): Promise<{ success: boolean; error?: string }> {
+    return emitWithTimeout('add_ai_player', { gameId: gameId.value, difficulty }, 10000).then((response: any) => {
+      if (response?.success && response.state) {
+        gameState.value = response.state
+        updateAIPlayerIds()
+        console.log('[GameStore] addAIPlayer success')
+      }
+      return response
+    })
+  }
+
+  function removeAIPlayer(playerId: string): Promise<{ success: boolean; error?: string }> {
+    return emitWithTimeout('remove_ai_player', { gameId: gameId.value, playerId }, 10000).then((response: any) => {
+      if (response?.success && response.state) {
+        gameState.value = response.state
+        updateAIPlayerIds()
+        console.log('[GameStore] removeAIPlayer success')
       }
       return response
     })
@@ -322,6 +360,7 @@ export const useGameStore = defineStore('game', () => {
     moveTarget,
     isHost,
     roomList,
+    aiPlayerIds,
     currentPlayer,
     otherPlayers,
     isMyTurn,
@@ -344,6 +383,8 @@ export const useGameStore = defineStore('game', () => {
     startRoomListPolling,
     stopRoomListPolling,
     leaveRoom,
-    disconnect
+    disconnect,
+    addAIPlayer,
+    removeAIPlayer
   }
 })

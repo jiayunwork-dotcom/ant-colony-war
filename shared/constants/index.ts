@@ -148,3 +148,25 @@ export const MUTATION_EFFECTS = {
   resistance: { hpBonus: 0.2 },
   breeding: { productionBonus: 1 }
 };
+
+export const AI_THREAT_THRESHOLD = 3;
+export const AI_MAINTENANCE_MULTIPLIER = 2;
+export const AI_COMMAND_DELAY = 200;
+
+export const AI_DIFFICULTY_CONFIG = {
+  easy: {
+    visionRange: 0,
+    decisionWeight: 0.5,
+    name: 'AI-Easy'
+  },
+  normal: {
+    visionRange: 3,
+    decisionWeight: 0.8,
+    name: 'AI-Normal'
+  },
+  hard: {
+    visionRange: Infinity,
+    decisionWeight: 1.0,
+    name: 'AI-Hard'
+  }
+};

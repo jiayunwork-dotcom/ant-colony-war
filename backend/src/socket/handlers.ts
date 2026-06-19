@@ -1,7 +1,8 @@
 import { Server, Socket } from 'socket.io';
 import { gameRoomManager } from '../services/GameRoomManager';
 import { redisStore } from '../services/RedisStoreInstance';
-import { PlayerCommand } from '../../../shared/types';
+import { aiManager } from '../services/AIManager';
+import { PlayerCommand, AIDifficulty } from '../../../shared/types';
 import { COMMAND_TIME_LIMIT } from '../../../shared/constants';
 
 export function setupSocketHandlers(io: Server): void {
@@ -150,6 +151,17 @@ export function setupSocketHandlers(io: Server): void {
           const state = game.getState();
           io.to(data.gameId).emit('game_started', { state });
 
+          aiManager.processAITurns(game, (command) => {
+            io.to(data.gameId).emit('player_ready', {
+              playerId: command.playerId,
+              players: game.getState().players
+            });
+
+            if (game.allPlayersReady()) {
+              processTurn(io, data.gameId);
+            }
+          });
+
           startTurnTimer(io, data.gameId);
 
           callback({ success: true, state });
@@ -279,6 +291,69 @@ export function setupSocketHandlers(io: Server): void {
         timestamp: Date.now()
       });
     });
+
+    socket.on('add_ai_player', (data: { gameId: string; difficulty: AIDifficulty }, callback) => {
+      try {
+        const game = gameRoomManager.getRoom(data.gameId);
+        if (!game) {
+          callback({ success: false, error: 'Game not found' });
+          return;
+        }
+
+        const state = game.getState();
+        if (state.hostId !== socket.id) {
+          callback({ success: false, error: 'Only the host can add AI players' });
+          return;
+        }
+
+        const success = aiManager.addAIPlayer(game, data.difficulty);
+        if (success) {
+          const state = game.getState();
+          io.to(data.gameId).emit('player_joined', {
+            players: state.players
+          });
+          callback({ success: true, state });
+        } else {
+          callback({ success: false, error: 'Failed to add AI player' });
+        }
+      } catch (error) {
+        callback({ success: false, error: (error as Error).message });
+      }
+    });
+
+    socket.on('remove_ai_player', (data: { gameId: string; playerId: string }, callback) => {
+      try {
+        const game = gameRoomManager.getRoom(data.gameId);
+        if (!game) {
+          callback({ success: false, error: 'Game not found' });
+          return;
+        }
+
+        const state = game.getState();
+        if (state.hostId !== socket.id) {
+          callback({ success: false, error: 'Only the host can remove AI players' });
+          return;
+        }
+
+        if (!aiManager.isAIPlayer(data.gameId, data.playerId)) {
+          callback({ success: false, error: 'Player is not an AI' });
+          return;
+        }
+
+        aiManager.removeAIPlayer(data.gameId, data.playerId);
+        game.removePlayer(data.playerId);
+
+        const newState = game.getState();
+        io.to(data.gameId).emit('player_left', {
+          playerId: data.playerId,
+          players: newState.players
+        });
+
+        callback({ success: true, state: newState });
+      } catch (error) {
+        callback({ success: false, error: (error as Error).message });
+      }
+    });
   });
 
   function startTurnTimer(io: Server, gameId: string): void {
@@ -317,7 +392,18 @@ export function setupSocketHandlers(io: Server): void {
       } catch (err) {
         console.error('[Socket] Failed to build replay for game', gameId, err);
       }
+      aiManager.cleanupGame(gameId);
     } else {
+      aiManager.processAITurns(game, (command) => {
+        io.to(gameId).emit('player_ready', {
+          playerId: command.playerId,
+          players: game.getState().players
+        });
+
+        if (game.allPlayersReady()) {
+          processTurn(io, gameId);
+        }
+      });
       startTurnTimer(io, gameId);
     }
   }
