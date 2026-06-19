@@ -78,7 +78,7 @@
       </div>
 
       <GameOverModal
-        :show="gameState.phase === 'ended'"
+        :show="gameState.phase === 'ended' && !showAIReplay"
         :game-id="gameState.id"
         :players="gameState.players"
         :winner-id="gameState.winner"
@@ -118,7 +118,8 @@ const {
   roomList,
   aiPlayerIds,
   showAIReplay,
-  aiReplayData
+  aiReplayData,
+  isLoadingAIReplay
 } = storeToRefs(gameStore)
 
 const showHistory = ref(false)
@@ -230,18 +231,36 @@ function handleRestart() {
 
 async function handleShowAIReplay(gameId: string) {
   console.log('[App] handleShowAIReplay called with gameId:', gameId)
+  
+  if (showAIReplay.value || aiReplayData.value || isLoadingAIReplay.value) {
+    console.log('[App] Replay already opened or loading, skipping')
+    return
+  }
+  
+  if (!gameId) {
+    console.error('[App] gameId is empty')
+    alert('游戏ID无效，无法加载复盘数据')
+    gameStore.resetAIReplayLoading()
+    return
+  }
+  
   try {
+    console.log('[App] Fallback: calling gameStore.fetchAIReplayData...')
     const result = await gameStore.fetchAIReplayData(gameId)
-    console.log('[App] fetchAIReplayData result:', result)
+    
     if (result.success && result.data) {
-      console.log('[App] Opening AI replay page')
+      console.log('[App] Fallback: Opening AI replay page...')
       gameStore.openAIReplay()
-    } else {
+    } else if (!isLoadingAIReplay.value) {
       alert(`复盘数据加载失败：${result.error || '未知错误'}`)
+      gameStore.resetAIReplayLoading()
     }
   } catch (e) {
-    console.error('[App] handleShowAIReplay error:', e)
-    alert(`复盘数据加载异常：${e instanceof Error ? e.message : String(e)}`)
+    console.error('[App] handleShowAIReplay exception:', e)
+    if (!isLoadingAIReplay.value) {
+      alert(`复盘数据加载异常：${e instanceof Error ? e.message : String(e)}`)
+      gameStore.resetAIReplayLoading()
+    }
   }
 }
 

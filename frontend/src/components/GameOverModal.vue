@@ -60,11 +60,11 @@
         <button 
           class="btn btn-secondary" 
           @click="handleShowAIReplay"
-          :disabled="!aiReplayValid || checkingValidity || isLoadingReplay || !hasAIPlayers"
+          :disabled="isButtonDisabled"
           :class="{ 'btn-disabled': !aiReplayValid || !hasAIPlayers }"
           :title="!hasAIPlayers ? '本局没有AI玩家' : !aiReplayValid ? '复盘数据已过期' : ''"
         >
-          {{ isLoadingReplay ? '加载中...' : checkingValidity ? '检查中...' : !hasAIPlayers ? '无AI数据' : !aiReplayValid ? '复盘数据已过期' : '🤖 AI复盘' }}
+          {{ buttonText }}
         </button>
         <button class="btn btn-primary" @click="$emit('restart')">
           返回大厅
@@ -76,6 +76,8 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
+import { useGameStore } from '@/stores/game'
+import { storeToRefs } from 'pinia'
 import type { Player } from '@shared/types'
 
 const props = defineProps<{
@@ -91,13 +93,27 @@ const emit = defineEmits<{
   (e: 'showAIReplay', gameId: string): void
 }>()
 
+const gameStore = useGameStore()
+const { isLoadingAIReplay } = storeToRefs(gameStore)
+
 const aiReplayValid = ref(false)
 const checkingValidity = ref(false)
 const hasChecked = ref(false)
-const isLoadingReplay = ref(false)
 
 const hasAIPlayers = computed(() => {
   return props.players.some(p => p.name.startsWith('AI-'))
+})
+
+const isButtonDisabled = computed(() => {
+  return !aiReplayValid.value || checkingValidity.value || isLoadingAIReplay.value || !hasAIPlayers.value
+})
+
+const buttonText = computed(() => {
+  if (isLoadingAIReplay.value) return '加载中...'
+  if (checkingValidity.value) return '检查中...'
+  if (!hasAIPlayers.value) return '无AI数据'
+  if (!aiReplayValid.value) return '复盘数据已过期'
+  return '🤖 AI复盘'
 })
 
 async function checkReplayValidity() {
@@ -138,7 +154,6 @@ async function checkReplayValidity() {
 watch(() => props.show, (newShow) => {
   if (newShow) {
     hasChecked.value = false
-    isLoadingReplay.value = false
     if (props.gameId && hasAIPlayers.value) {
       checkReplayValidity()
     }
@@ -148,16 +163,44 @@ watch(() => props.show, (newShow) => {
 onMounted(() => {
   if (props.show && props.gameId) {
     hasChecked.value = false
-    isLoadingReplay.value = false
     checkReplayValidity()
   }
 })
 
 async function handleShowAIReplay() {
-  if (aiReplayValid.value && !checkingValidity.value && !isLoadingReplay.value && props.gameId) {
-    isLoadingReplay.value = true
-    console.log('[GameOverModal] Emitting showAIReplay with gameId:', props.gameId)
-    emit('showAIReplay', props.gameId)
+  if (isButtonDisabled.value || !props.gameId) {
+    console.log('[GameOverModal] handleShowAIReplay skipped, disabled:', isButtonDisabled.value, 'gameId:', props.gameId)
+    return
+  }
+
+  console.log('[GameOverModal] ========================================')
+  console.log('[GameOverModal] handleShowAIReplay called, gameId:', props.gameId)
+  
+  try {
+    console.log('[GameOverModal] Calling gameStore.fetchAIReplayData directly...')
+    const result = await gameStore.fetchAIReplayData(props.gameId)
+    console.log('[GameOverModal] fetchAIReplayData result:', JSON.stringify({
+      success: result.success,
+      error: result.error,
+      hasData: !!result.data
+    }))
+
+    if (result.success && result.data) {
+      console.log('[GameOverModal] Opening AI replay page...')
+      gameStore.openAIReplay()
+      emit('showAIReplay', props.gameId)
+    } else {
+      console.error('[GameOverModal] Failed to load replay:', result.error)
+      alert(`复盘数据加载失败：${result.error || '未知错误'}`)
+      gameStore.resetAIReplayLoading()
+    }
+  } catch (e) {
+    console.error('[GameOverModal] Exception in handleShowAIReplay:', e)
+    alert(`复盘数据加载异常：${e instanceof Error ? e.message : String(e)}`)
+    gameStore.resetAIReplayLoading()
+  } finally {
+    console.log('[GameOverModal] handleShowAIReplay finished')
+    console.log('[GameOverModal] ========================================')
   }
 }
 
