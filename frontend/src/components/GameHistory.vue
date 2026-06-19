@@ -43,7 +43,7 @@
 
     <div v-else class="history-detail">
       <div class="detail-header">
-        <button class="btn btn-back" @click="selectedReplay = null; replayData = null; currentTurn = 0; searchKeyword = ''">← 返回列表</button>
+        <button class="btn btn-back" @click="goBackToList">← 返回列表</button>
         <h2 class="detail-title">📊 对局回放</h2>
       </div>
 
@@ -282,6 +282,8 @@ async function selectReplay(gameId: string) {
   detailLoading.value = true
   replayData.value = null
   currentTurn.value = 0
+  chartCache = null
+  lastHoverTurnIdx = -2
   try {
     const res = await fetch(`/api/replays/${gameId}`)
     const data = await res.json()
@@ -327,22 +329,50 @@ function formatTime(ts: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-function getAttackerCasualtyWidth(battle: BattleEventRecord & { turn: number }): number {
-  const total = battle.attackerKills + battle.defenderKills
-  if (total === 0) return 0
-  return Math.round((battle.attackerKills / total) * 120)
+function goBackToList() {
+  selectedReplay.value = null
+  replayData.value = null
+  currentTurn.value = 0
+  searchKeyword.value = ''
+  chartCache = null
+  lastHoverTurnIdx = -2
+  canvasSizeKey = ''
 }
 
-function getDefenderCasualtyWidth(battle: BattleEventRecord & { turn: number }): number {
+function getAttackerCasualtyWidth(battle: BattleEventRecord & { turn: number }): number {
   const total = battle.attackerKills + battle.defenderKills
   if (total === 0) return 0
   return Math.round((battle.defenderKills / total) * 120)
 }
 
+function getDefenderCasualtyWidth(battle: BattleEventRecord & { turn: number }): number {
+  const total = battle.attackerKills + battle.defenderKills
+  if (total === 0) return 0
+  return Math.round((battle.attackerKills / total) * 120)
+}
+
 function handleTurnSliderInput(e: Event) {
   const target = e.target as HTMLInputElement
   currentTurn.value = parseInt(target.value, 10)
+  lastHoverTurnIdx = -2
   drawChart()
+}
+
+let lastHoverTurnIdx = -1
+let rafPending = false
+let pendingHoverIdx = -1
+
+function scheduleChartRender(hoverIdx: number) {
+  pendingHoverIdx = hoverIdx
+  if (rafPending) return
+  rafPending = true
+  requestAnimationFrame(() => {
+    rafPending = false
+    if (pendingHoverIdx !== lastHoverTurnIdx) {
+      lastHoverTurnIdx = pendingHoverIdx
+      drawChart(pendingHoverIdx)
+    }
+  })
 }
 
 function handleChartMouseMove(e: MouseEvent) {
@@ -356,7 +386,7 @@ function handleChartMouseMove(e: MouseEvent) {
   if (x < padding.left || x > padding.left + chartLayout.chartW ||
       y < padding.top || y > padding.top + chartLayout.chartH) {
     showTooltip.value = false
-    drawChart()
+    scheduleChartRender(-1)
     return
   }
 
@@ -387,12 +417,12 @@ function handleChartMouseMove(e: MouseEvent) {
   tooltipX.value = Math.min(lineX + 15, rect.width - 180)
   tooltipY.value = Math.max(padding.top, y - 60)
 
-  drawChart(turnIdx)
+  scheduleChartRender(turnIdx)
 }
 
 function handleChartMouseLeave() {
   showTooltip.value = false
-  drawChart()
+  scheduleChartRender(-1)
 }
 
 function buildChartCache() {
@@ -412,20 +442,24 @@ function buildChartCache() {
 
   for (let ti = 0; ti < turns.length; ti++) {
     const turn = turns[ti]
-    const existingIds = new Set(turn.playerSnapshots.map(s => s.playerId))
 
     for (const pid of playerIds) {
       if (eliminatedAt[pid] >= 0) continue
 
       const snap = turn.playerSnapshots.find(s => s.playerId === pid)
       if (snap) {
+        const totalAnts = snap.workerCount + snap.soldierCount + snap.scoutCount
+        if (totalAnts === 0 && snap.territoryCount === 0) {
+          eliminatedAt[pid] = ti
+          continue
+        }
         let val: number
         if (activeChart.value === 'food') {
           val = snap.food
         } else if (activeChart.value === 'territory') {
           val = snap.territoryCount
         } else {
-          val = snap.workerCount + snap.soldierCount + snap.scoutCount
+          val = totalAnts
         }
         dataMap[pid].push(val)
       } else {
@@ -437,6 +471,8 @@ function buildChartCache() {
   chartCache = { dataMap, eliminatedAt, playerIds, playerColors, playerNames }
 }
 
+let canvasSizeKey = ''
+
 function drawChart(hoverTurnIdx: number = -1) {
   const canvas = chartCanvas.value
   if (!canvas || !replayData.value) return
@@ -444,13 +480,22 @@ function drawChart(hoverTurnIdx: number = -1) {
   const ctx = canvas.getContext('2d')
   if (!ctx) return
 
-  const dpr = window.devicePixelRatio || 1
   const rect = canvas.getBoundingClientRect()
-  canvas.width = rect.width * dpr
-  canvas.height = rect.height * dpr
-  ctx.scale(dpr, dpr)
-  canvas.style.width = rect.width + 'px'
-  canvas.style.height = rect.height + 'px'
+  const sizeKey = `${rect.width}x${rect.height}`
+  const sizeChanged = sizeKey !== canvasSizeKey
+
+  if (sizeChanged) {
+    canvasSizeKey = sizeKey
+    const dpr = window.devicePixelRatio || 1
+    canvas.width = rect.width * dpr
+    canvas.height = rect.height * dpr
+    ctx.scale(dpr, dpr)
+    canvas.style.width = rect.width + 'px'
+    canvas.style.height = rect.height + 'px'
+  } else {
+    const dpr = window.devicePixelRatio || 1
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  }
 
   const W = rect.width
   const H = rect.height
@@ -463,7 +508,9 @@ function drawChart(hoverTurnIdx: number = -1) {
   const turns = replayData.value.turns
   if (turns.length === 0) return
 
-  buildChartCache()
+  if (!chartCache) {
+    buildChartCache()
+  }
   if (!chartCache) return
 
   const { dataMap, eliminatedAt, playerIds, playerColors, playerNames } = chartCache
@@ -683,6 +730,8 @@ function calculateTicks(min: number, max: number, targetCount: number): number[]
 
 watch(activeChart, () => {
   if (replayData.value) {
+    chartCache = null
+    lastHoverTurnIdx = -2
     nextTick(() => drawChart())
   }
 })
