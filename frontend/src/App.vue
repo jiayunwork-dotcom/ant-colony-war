@@ -1,7 +1,13 @@
 <template>
   <div class="app">
+    <AIReplayAnalysis
+      v-if="showAIReplay && aiReplayData"
+      :replay-data="aiReplayData"
+      @back="handleCloseAIReplay"
+    />
+
     <GameHistory
-      v-if="showHistory"
+      v-else-if="showHistory"
       @back="showHistory = false"
     />
 
@@ -73,10 +79,12 @@
 
       <GameOverModal
         :show="gameState.phase === 'ended'"
+        :game-id="gameState.id"
         :players="gameState.players"
         :winner-id="gameState.winner"
         :current-player-id="playerId"
         @restart="handleRestart"
+        @show-ai-replay="handleShowAIReplay"
       />
     </template>
   </div>
@@ -94,6 +102,7 @@ import ControlPanel from './components/ControlPanel.vue'
 import EventLog from './components/EventLog.vue'
 import GameOverModal from './components/GameOverModal.vue'
 import GameHistory from './components/GameHistory.vue'
+import AIReplayAnalysis from './components/AIReplayAnalysis.vue'
 import type { HexCoord, HexCell, AntType, FacilityType, MutationType, AIDifficulty } from '@shared/types'
 
 const gameStore = useGameStore()
@@ -107,7 +116,9 @@ const {
   sortedEventLog,
   selectedAnts,
   roomList,
-  aiPlayerIds
+  aiPlayerIds,
+  showAIReplay,
+  aiReplayData
 } = storeToRefs(gameStore)
 
 const showHistory = ref(false)
@@ -215,6 +226,17 @@ function handleRestart() {
   gameStore.disconnect()
   gameStore.connect()
   gameStore.startRoomListPolling()
+}
+
+async function handleShowAIReplay(gameId: string) {
+  const result = await gameStore.fetchAIReplayData(gameId)
+  if (result.success && result.data) {
+    gameStore.openAIReplay()
+  }
+}
+
+function handleCloseAIReplay() {
+  gameStore.closeAIReplay()
 }
 
 watch(gameState, (newState) => {

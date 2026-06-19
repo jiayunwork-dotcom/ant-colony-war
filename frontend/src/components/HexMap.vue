@@ -1,5 +1,5 @@
 <template>
-  <div class="hex-map-container" ref="containerRef" @wheel="handleZoom" @mousedown="startDrag">
+  <div class="hex-map-container" ref="containerRef" @wheel="handleZoom" @mousedown="startDrag" :class="{ 'readonly': readonly }">
     <div
       class="hex-map-wrapper"
       :style="wrapperStyle"
@@ -16,6 +16,18 @@
           <pattern id="infoPheromonePattern" patternUnits="userSpaceOnUse" width="10" height="10">
             <rect width="10" height="10" fill="currentColor" opacity="0.3" />
           </pattern>
+          <marker
+            v-for="antType in (['worker', 'soldier', 'scout'] as AntType[])"
+            :key="antType"
+            :id="getArrowMarkerId(antType)"
+            markerWidth="10"
+            markerHeight="10"
+            refX="8"
+            refY="3"
+            orient="auto"
+          >
+            <path d="M0,0 L0,6 L9,3 z" :fill="antPathColors[antType]" />
+          </marker>
         </defs>
 
         <g v-for="row in visibleRows" :key="'row-' + row.rowIndex" :transform="`translate(${row.offsetX}, ${row.offsetY})`">
@@ -29,7 +41,8 @@
               'is-target': isTargetCell(cell),
               'has-food': cell.terrain === 'food',
               'is-rock': cell.terrain === 'rock',
-              'is-water': cell.terrain === 'water' || cell.temporaryWater
+              'is-water': cell.terrain === 'water' || cell.temporaryWater,
+              'readonly': props.readonly
             }"
           >
             <polygon
@@ -38,6 +51,13 @@
               :stroke="getCellStroke(cell)"
               stroke-width="1"
               class="hex-polygon"
+            />
+            <polygon
+              v-if="props.threatMatrix && props.threatMatrix[coordKey(cell.coord)] !== undefined"
+              :points="hexPoints"
+              :fill="getThreatColor(props.threatMatrix[coordKey(cell.coord)])"
+              :opacity="getThreatOpacity(props.threatMatrix[coordKey(cell.coord)])"
+              class="threat-overlay"
             />
 
             <circle
@@ -113,7 +133,7 @@
         </g>
 
         <path
-          v-if="selectedAnts.length > 0 && moveTarget"
+          v-if="selectedAnts.length > 0 && moveTarget && !props.readonly"
           :d="movePathD"
           stroke="#4ecdc4"
           stroke-width="2"
@@ -121,6 +141,19 @@
           fill="none"
           opacity="0.7"
         />
+
+        <g v-if="props.antDecisions && props.antDecisions.length > 0" class="ant-paths">
+          <path
+            v-for="decision in props.antDecisions"
+            :key="'path-' + decision.antId"
+            :d="getPathD(decision.path)"
+            :stroke="antPathColors[decision.antType]"
+            stroke-width="2"
+            fill="none"
+            :marker-end="`url(#${getArrowMarkerId(decision.antType)})`"
+            class="ant-move-path"
+          />
+        </g>
       </svg>
     </div>
 
@@ -141,11 +174,17 @@
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useGameStore } from '@/stores/game'
 import { storeToRefs } from 'pinia'
-import type { HexCell, HexCoord, Ant, Player, Predator } from '@shared/types'
+import type { HexCell, HexCoord, Ant, Player, Predator, ThreatMatrix, AntDecision, AntType } from '@shared/types'
 import { hexToPixel, getHexCorners, hexDistance } from '@shared/utils/hex'
 
 const props = defineProps<{
   hexSize?: number
+  readonly?: boolean
+  threatMatrix?: ThreatMatrix | null
+  antDecisions?: AntDecision[]
+  overrideMap?: HexCell[][]
+  overridePlayers?: Player[]
+  selectedAIPlayerId?: string
 }>()
 
 const emit = defineEmits<{
@@ -171,18 +210,6 @@ const dragStartY = ref(0)
 const lastPanX = ref(0)
 const lastPanY = ref(0)
 
-const svgWidth = computed(() => {
-  if (!gameState.value) return 800
-  const size = gameState.value.mapSize
-  return size * hexSize.value * 1.8
-})
-
-const svgHeight = computed(() => {
-  if (!gameState.value) return 600
-  const size = gameState.value.mapSize
-  return size * hexSize.value * 1.6
-})
-
 const wrapperStyle = computed(() => ({
   transform: `translate(${panX.value}px, ${panY.value}px) scale(${zoom.value})`,
   transformOrigin: 'center center'
@@ -193,13 +220,18 @@ const hexPoints = computed(() => {
   return corners.map(c => `${c.x},${c.y}`).join(' ')
 })
 
-const players = computed(() => gameState.value?.players || [])
+const effectiveMap = computed(() => props.overrideMap || gameState.value?.map || [])
+const effectiveMapSize = computed(() => {
+  if (props.overrideMap) return props.overrideMap.length
+  return gameState.value?.mapSize || 0
+})
+const players = computed(() => props.overridePlayers || gameState.value?.players || [])
 const predator = computed(() => gameState.value?.predator as Predator | undefined)
 
 const visibleRows = computed(() => {
-  if (!gameState.value) return []
-  const map = gameState.value.map
-  const offset = Math.floor(gameState.value.mapSize / 2)
+  const map = effectiveMap.value
+  if (!map || map.length === 0) return []
+  const offset = Math.floor(effectiveMapSize.value / 2)
 
   return map.map((row, rowIndex) => {
     const r = rowIndex - offset
@@ -221,6 +253,54 @@ const visibleRows = computed(() => {
     }
   })
 })
+
+const svgWidth = computed(() => {
+  const size = effectiveMapSize.value
+  if (!size) return 800
+  return size * hexSize.value * 1.8
+})
+
+const svgHeight = computed(() => {
+  const size = effectiveMapSize.value
+  if (!size) return 600
+  return size * hexSize.value * 1.6
+})
+
+function getThreatColor(threat: number): string {
+  const normalized = Math.min(1, Math.max(0, threat / 10))
+  const r = Math.round(30 + normalized * 205)
+  const g = Math.round(100 - normalized * 80)
+  const b = Math.round(200 - normalized * 150)
+  return `rgba(${r}, ${g}, ${b}, 0.5)`
+}
+
+function getThreatOpacity(threat: number): number {
+  return Math.min(0.7, Math.max(0.1, threat / 15))
+}
+
+function coordKey(coord: HexCoord): string {
+  return `${coord.q},${coord.r}`
+}
+
+const antPathColors: Record<AntType, string> = {
+  worker: '#22c55e',
+  soldier: '#ef4444',
+  scout: '#eab308'
+}
+
+function getPathD(path: HexCoord[]): string {
+  if (path.length < 2) return ''
+  const points = path.map(p => hexToPixel(p, hexSize.value))
+  let d = `M ${points[0].x} ${points[0].y}`
+  for (let i = 1; i < points.length; i++) {
+    d += ` L ${points[i].x} ${points[i].y}`
+  }
+  return d
+}
+
+function getArrowMarkerId(antType: AntType): string {
+  return `arrow-${antType}`
+}
 
 const movePathD = computed(() => {
   if (selectedAnts.value.length === 0 || !moveTarget.value || !currentPlayer.value) return ''
@@ -342,6 +422,7 @@ function isAntSelected(antId: string): boolean {
 }
 
 function selectAnt(antId: string) {
+  if (props.readonly) return
   const ant = currentPlayer.value?.ants.find(a => a.id === antId)
   if (ant && ant.playerId === gameStore.playerId) {
     gameStore.selectAnt(antId, false)
@@ -350,7 +431,8 @@ function selectAnt(antId: string) {
 }
 
 function handleMapClick(event: MouseEvent) {
-  if (!wrapperRef.value || !gameState.value) return
+  if (props.readonly) return
+  if (!wrapperRef.value || !effectiveMap.value) return
 
   const rect = wrapperRef.value.getBoundingClientRect()
   const x = (event.clientX - rect.left) / zoom.value - svgWidth.value / 2
@@ -365,7 +447,8 @@ function handleMapClick(event: MouseEvent) {
 }
 
 function handleRightClick(event: MouseEvent) {
-  if (!wrapperRef.value || !gameState.value) return
+  if (props.readonly) return
+  if (!wrapperRef.value || !effectiveMap.value) return
 
   const rect = wrapperRef.value.getBoundingClientRect()
   const x = (event.clientX - rect.left) / zoom.value - svgWidth.value / 2
@@ -401,9 +484,10 @@ function hexRound(coord: { q: number; r: number }): HexCoord {
 }
 
 function getCellAt(coord: HexCoord): HexCell | null {
-  if (!gameState.value) return null
-  const map = gameState.value.map
-  const offset = Math.floor(gameState.value.mapSize / 2)
+  const map = effectiveMap.value
+  const mapSize = effectiveMapSize.value
+  if (!map || map.length === 0) return null
+  const offset = Math.floor(mapSize / 2)
 
   const rowIdx = coord.r + offset
   if (rowIdx < 0 || rowIdx >= map.length) return null
@@ -437,6 +521,7 @@ function resetView() {
 }
 
 function startDrag(event: MouseEvent) {
+  if (props.readonly) return
   if (event.button !== 0 && event.button !== 1) return
   isDragging.value = true
   dragStartX.value = event.clientX
@@ -463,7 +548,9 @@ function endDrag() {
 }
 
 function drawMinimap() {
-  if (!minimapCanvas.value || !gameState.value) return
+  if (!minimapCanvas.value) return
+  const map = effectiveMap.value
+  if (!map || map.length === 0) return
   const ctx = minimapCanvas.value.getContext('2d')
   if (!ctx) return
 
@@ -471,7 +558,6 @@ function drawMinimap() {
   ctx.fillStyle = '#1a1a2e'
   ctx.fillRect(0, 0, canvasSize, canvasSize)
 
-  const map = gameState.value.map
   const cellSize = canvasSize / (map.length * 1.2)
 
   for (let r = 0; r < map.length; r++) {
@@ -503,8 +589,8 @@ function drawMinimap() {
 
 onMounted(() => {
   nextTick(() => {
-    if (containerRef.value && gameState.value) {
-      const size = gameState.value.mapSize
+    if (containerRef.value && effectiveMapSize.value > 0) {
+      const size = effectiveMapSize.value
       const optimalZoom = Math.min(
         containerRef.value.clientWidth / (size * hexSize.value * 1.8),
         containerRef.value.clientHeight / (size * hexSize.value * 1.6),
@@ -516,7 +602,7 @@ onMounted(() => {
   })
 })
 
-watch(gameState, () => {
+watch([gameState, () => props.overrideMap, () => props.threatMatrix, () => props.antDecisions], () => {
   drawMinimap()
 }, { deep: true })
 </script>
@@ -638,5 +724,48 @@ watch(gameState, () => {
 
 .minimap canvas {
   border-radius: 4px;
+}
+
+.hex-cell.readonly {
+  cursor: default;
+}
+
+.hex-cell.readonly:hover .hex-polygon {
+  filter: none;
+}
+
+.threat-overlay {
+  transition: fill 0.5s ease, opacity 0.5s ease;
+  pointer-events: none;
+}
+
+.ant-move-path {
+  transition: stroke-dashoffset 0.5s ease;
+  pointer-events: none;
+  animation: pathDash 0.5s ease-out;
+  stroke-dasharray: 1000;
+  stroke-dashoffset: 1000;
+}
+
+@keyframes pathDash {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.ant-marker {
+  transition: cx 0.5s ease, cy 0.5s ease;
+}
+
+.hex-polygon {
+  transition: fill 0.5s ease, stroke 0.5s ease;
+}
+
+.hex-map-container.readonly {
+  cursor: default;
+}
+
+.hex-map-container.readonly:active {
+  cursor: default;
 }
 </style>

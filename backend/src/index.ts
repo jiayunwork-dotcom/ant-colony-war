@@ -59,6 +59,38 @@ app.get('/api/replays/:id', async (req, res) => {
   }
 });
 
+app.get('/api/replays/:id/ai', async (req, res) => {
+  try {
+    const replayWithAI = await redisStore.getReplayWithAIById(req.params.id);
+    if (!replayWithAI) {
+      res.status(404).json({ success: false, error: 'AI replay data not found or expired' });
+      return;
+    }
+    const sortedReplay = {
+      ...replayWithAI,
+      turns: [...replayWithAI.turns].sort((a, b) => a.turn - b.turn),
+      aiReplayData: replayWithAI.aiReplayData.map(aiData => ({
+        ...aiData,
+        decisions: [...aiData.decisions].sort((a, b) => a.turn - b.turn)
+      }))
+    };
+    res.json({ success: true, replay: sortedReplay });
+  } catch (error) {
+    console.error('[API] Error fetching AI replay:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch AI replay' });
+  }
+});
+
+app.get('/api/replays/:id/ai/valid', async (req, res) => {
+  try {
+    const isValid = await redisStore.checkAIReplayValid(req.params.id);
+    res.json({ success: true, valid: isValid });
+  } catch (error) {
+    console.error('[API] Error checking AI replay validity:', error);
+    res.status(500).json({ success: false, error: 'Failed to check AI replay validity' });
+  }
+});
+
 const server = http.createServer(app);
 
 const io = new Server(server, {

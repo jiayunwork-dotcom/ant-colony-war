@@ -4,7 +4,8 @@ import { AIPlayerController } from '../game/AIPlayerController';
 import {
   AIDifficulty,
   GameState,
-  PlayerCommand
+  PlayerCommand,
+  AITurnDecision
 } from '../../../shared/types';
 import { AI_COMMAND_DELAY } from '../../../shared/constants';
 
@@ -100,7 +101,11 @@ export class AIManager {
     return aiList.some(ai => ai.playerId === playerId);
   }
 
-  processAITurns(game: GameEngine, onCommandSubmitted: (command: PlayerCommand) => void): void {
+  processAITurns(
+    game: GameEngine, 
+    onCommandSubmitted: (command: PlayerCommand) => void,
+    onDecisionRecorded?: (playerId: string, decision: AITurnDecision) => void
+  ): void {
     const state = game.getState();
     if (state.phase !== 'command') return;
 
@@ -121,11 +126,14 @@ export class AIManager {
         const player = game.getPlayer(aiInfo.playerId);
         if (!player || player.isEliminated || player.isReady) return;
 
-        const command = aiInfo.controller.generateCommand(currentState);
-        const success = game.submitCommand(command);
+        const result = aiInfo.controller.generateCommand(currentState);
+        const success = game.submitCommand(result.command);
 
         if (success) {
-          onCommandSubmitted(command);
+          if (result.decision && onDecisionRecorded) {
+            onDecisionRecorded(aiInfo.playerId, result.decision);
+          }
+          onCommandSubmitted(result.command);
           console.log(`[AIManager] AI ${aiInfo.name} submitted command for turn ${currentState.turn}`);
         }
       }, AI_COMMAND_DELAY);

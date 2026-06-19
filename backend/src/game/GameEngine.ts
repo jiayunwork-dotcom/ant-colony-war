@@ -12,7 +12,9 @@ import {
   PLAYER_COLORS,
   GameReplay,
   BattleEventRecord,
-  EcoEventRecord
+  EcoEventRecord,
+  AITurnDecision,
+  GameReplayWithAI
 } from '../../../shared/types';
 import {
   MAP_SIZE,
@@ -545,6 +547,14 @@ export class GameEngine {
     );
   }
 
+  recordAITurnDecision(playerId: string, decision: AITurnDecision): void {
+    this.replayCollector.recordAITurnDecision(playerId, decision);
+  }
+
+  hasAIReplayData(): boolean {
+    return this.replayCollector.hasAIReplayData();
+  }
+
   buildGameReplay(): GameReplay {
     const scoreDetails = this.state.players.map(player => {
       const breakdown = this.getScoreBreakdown(player);
@@ -560,6 +570,28 @@ export class GameEngine {
     });
 
     return this.replayCollector.buildGameReplay(
+      this.state.players,
+      this.state.winner || '',
+      scoreDetails,
+      this.state.turn
+    );
+  }
+
+  buildGameReplayWithAI(): GameReplayWithAI {
+    const scoreDetails = this.state.players.map(player => {
+      const breakdown = this.getScoreBreakdown(player);
+      return {
+        playerId: player.id,
+        playerName: player.name,
+        territory: breakdown.territory,
+        food: breakdown.food,
+        kills: breakdown.kills,
+        survivors: breakdown.survivors,
+        total: breakdown.total
+      };
+    });
+
+    return this.replayCollector.buildGameReplayWithAI(
       this.state.players,
       this.state.winner || '',
       scoreDetails,

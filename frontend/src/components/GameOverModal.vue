@@ -57,6 +57,15 @@
       </div>
 
       <div class="modal-footer">
+        <button 
+          class="btn btn-secondary" 
+          @click="handleShowAIReplay"
+          :disabled="!aiReplayValid || checkingValidity || !hasAIPlayers"
+          :class="{ 'btn-disabled': !aiReplayValid || !hasAIPlayers }"
+          :title="!hasAIPlayers ? '本局没有AI玩家' : !aiReplayValid ? '复盘数据已过期' : ''"
+        >
+          {{ checkingValidity ? '检查中...' : !hasAIPlayers ? '无AI数据' : !aiReplayValid ? '复盘数据已过期' : '🤖 AI复盘' }}
+        </button>
         <button class="btn btn-primary" @click="$emit('restart')">
           返回大厅
         </button>
@@ -66,7 +75,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import type { Player } from '@shared/types'
 
 const props = defineProps<{
@@ -74,11 +83,41 @@ const props = defineProps<{
   players: Player[]
   winnerId: string | null
   currentPlayerId: string
+  gameId: string
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'restart'): void
+  (e: 'showAIReplay'): void
 }>()
+
+const aiReplayValid = ref(true)
+const checkingValidity = ref(false)
+
+watch(() => props.show, async (newVal) => {
+  if (newVal && props.gameId) {
+    checkingValidity.value = true
+    try {
+      const response = await fetch(`/api/replays/${props.gameId}/ai/valid`)
+      const data = await response.json()
+      aiReplayValid.value = data.valid
+    } catch (e) {
+      aiReplayValid.value = false
+    } finally {
+      checkingValidity.value = false
+    }
+  }
+})
+
+const hasAIPlayers = computed(() => {
+  return props.players.some(p => p.name.startsWith('AI-'))
+})
+
+function handleShowAIReplay() {
+  if (aiReplayValid.value && !checkingValidity.value) {
+    emit('showAIReplay')
+  }
+}
 
 const rankedPlayers = computed(() => {
   return [...props.players].sort((a, b) => getTotalScore(b) - getTotalScore(a))
@@ -308,6 +347,39 @@ function getSurvivorCount(player: Player): number {
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   display: flex;
   justify-content: center;
+}
+
+.modal-footer {
+  padding: 20px 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+.btn-secondary {
+  min-width: 160px;
+  padding: 12px 24px;
+  font-size: 16px;
+  font-weight: 600;
+  background: linear-gradient(180deg, #4a5568 0%, #2d3748 100%);
+  border: 1px solid #718096;
+  color: #fff;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #5a6578 0%, #3d4758 100%);
+  transform: translateY(-1px);
+}
+
+.btn-secondary:disabled,
+.btn-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
 }
 
 .btn-primary {

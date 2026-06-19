@@ -1,13 +1,17 @@
 import Redis from 'ioredis';
-import { GameState, PlayerCommand, GameReplay, GameReplaySummary } from '../../../shared/types';
+import { GameState, PlayerCommand, GameReplay, GameReplaySummary, GameReplayWithAI } from '../../../shared/types';
 
 export class RedisStore {
   private redis: Redis;
   private readonly KEY_PREFIX = 'ant_war:';
   private readonly REPLAY_PREFIX = 'replay:';
+  private readonly REPLAY_WITH_AI_PREFIX = 'replay_with_ai:';
   private readonly RECENT_GAMES_KEY = 'recent_games';
+  private readonly RECENT_AI_REPLAYS_KEY = 'recent_ai_replays';
   private readonly RECENT_GAMES_MAX = 20;
+  private readonly RECENT_AI_REPLAYS_MAX = 5;
   private readonly REPLAY_EXPIRY = 86400;
+  private readonly AI_REPLAY_EXPIRY = 86400 * 3;
 
   constructor(host: string = 'localhost', port: number = 6379) {
     this.redis = new Redis({ host, port });
@@ -126,6 +130,39 @@ export class RedisStore {
     }
 
     return summaries;
+  }
+
+  async saveReplayWithAI(replay: GameReplayWithAI): Promise<void> {
+    const key = `${this.REPLAY_WITH_AI_PREFIX}${replay.gameId}`;
+    await this.redis.set(key, JSON.stringify(replay), 'EX', this.AI_REPLAY_EXPIRY);
+    
+    await this.redis.lpush(this.RECENT_AI_REPLAYS_KEY, replay.gameId);
+    await this.redis.ltrim(this.RECENT_AI_REPLAYS_KEY, 0, this.RECENT_AI_REPLAYS_MAX - 1);
+    
+    const remainingIds = await this.redis.lrange(this.RECENT_AI_REPLAYS_KEY, this.RECENT_AI_REPLAYS_MAX, -1);
+    for (const oldGameId of remainingIds) {
+      const oldKey = `${this.REPLAY_WITH_AI_PREFIX}${oldGameId}`;
+      await this.redis.del(oldKey);
+    }
+    
+    await this.saveReplay(replay);
+  }
+
+  async getReplayWithAIById(gameId: string): Promise<GameReplayWithAI | null> {
+    const key = `${this.REPLAY_WITH_AI_PREFIX}${gameId}`;
+    const data = await this.redis.get(key);
+    if (!data) return null;
+    return JSON.parse(data);
+  }
+
+  async checkAIReplayValid(gameId: string): Promise<boolean> {
+    const key = `${this.REPLAY_WITH_AI_PREFIX}${gameId}`;
+    const exists = await this.redis.exists(key);
+    return exists === 1;
+  }
+
+  async getRecentAIReplays(): Promise<string[]> {
+    return await this.redis.lrange(this.RECENT_AI_REPLAYS_KEY, 0, -1);
   }
 
   async disconnect(): Promise<void> {

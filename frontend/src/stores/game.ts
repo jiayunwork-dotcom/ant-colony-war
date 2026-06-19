@@ -12,7 +12,8 @@ import type {
   FacilityType,
   MutationType,
   RoomInfo,
-  AIDifficulty
+  AIDifficulty,
+  GameReplayWithAI
 } from '@shared/types'
 
 export const useGameStore = defineStore('game', () => {
@@ -26,6 +27,9 @@ export const useGameStore = defineStore('game', () => {
   const isHost = ref(false)
   const roomList = ref<RoomInfo[]>([])
   const aiPlayerIds = ref<string[]>([])
+  const showAIReplay = ref(false)
+  const aiReplayData = ref<GameReplayWithAI | null>(null)
+  const isLoadingAIReplay = ref(false)
   let roomListTimer: number | null = null
 
   const currentPlayer = computed(() => {
@@ -358,6 +362,45 @@ export const useGameStore = defineStore('game', () => {
     isHost.value = false
   }
 
+  async function checkAIReplayValid(gameId: string): Promise<{ valid: boolean; message?: string }> {
+    try {
+      const response = await fetch(`/api/replays/${gameId}/ai/valid`)
+      const data = await response.json()
+      return { valid: data.valid, message: data.message }
+    } catch (e) {
+      console.error('[GameStore] Failed to check AI replay validity:', e)
+      return { valid: false, message: '网络错误' }
+    }
+  }
+
+  async function fetchAIReplayData(gameId: string): Promise<{ success: boolean; data?: GameReplayWithAI; error?: string }> {
+    isLoadingAIReplay.value = true
+    try {
+      const response = await fetch(`/api/replays/${gameId}/ai`)
+      const data = await response.json()
+      if (data.success && data.replay) {
+        aiReplayData.value = data.replay
+        isLoadingAIReplay.value = false
+        return { success: true, data: data.replay }
+      }
+      isLoadingAIReplay.value = false
+      return { success: false, error: data.error || '获取复盘数据失败' }
+    } catch (e) {
+      console.error('[GameStore] Failed to fetch AI replay data:', e)
+      isLoadingAIReplay.value = false
+      return { success: false, error: '网络错误' }
+    }
+  }
+
+  function openAIReplay() {
+    showAIReplay.value = true
+  }
+
+  function closeAIReplay() {
+    showAIReplay.value = false
+    aiReplayData.value = null
+  }
+
   return {
     socket,
     gameId,
@@ -369,6 +412,9 @@ export const useGameStore = defineStore('game', () => {
     isHost,
     roomList,
     aiPlayerIds,
+    showAIReplay,
+    aiReplayData,
+    isLoadingAIReplay,
     currentPlayer,
     otherPlayers,
     isMyTurn,
@@ -393,6 +439,10 @@ export const useGameStore = defineStore('game', () => {
     leaveRoom,
     disconnect,
     addAIPlayer,
-    removeAIPlayer
+    removeAIPlayer,
+    checkAIReplayValid,
+    fetchAIReplayData,
+    openAIReplay,
+    closeAIReplay
   }
 })

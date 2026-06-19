@@ -160,6 +160,8 @@ export function setupSocketHandlers(io: Server): void {
             if (game.allPlayersReady()) {
               processTurn(io, data.gameId);
             }
+          }, (playerId, decision) => {
+            game.recordAITurnDecision(playerId, decision);
           });
 
           startTurnTimer(io, data.gameId);
@@ -399,12 +401,12 @@ export function setupSocketHandlers(io: Server): void {
 
     if (state.phase === 'ended') {
       try {
-        const replay = game.buildGameReplay();
-        redisStore.saveReplay(replay).catch(err => {
-          console.error('[Socket] Failed to save replay for game', gameId, err);
+        const replayWithAI = game.buildGameReplayWithAI();
+        redisStore.saveReplayWithAI(replayWithAI).catch(err => {
+          console.error('[Socket] Failed to save replay with AI for game', gameId, err);
         });
       } catch (err) {
-        console.error('[Socket] Failed to build replay for game', gameId, err);
+        console.error('[Socket] Failed to build replay with AI for game', gameId, err);
       }
       aiManager.cleanupGame(gameId);
     } else {
@@ -417,6 +419,8 @@ export function setupSocketHandlers(io: Server): void {
         if (game.allPlayersReady()) {
           processTurn(io, gameId);
         }
+      }, (playerId, decision) => {
+        game.recordAITurnDecision(playerId, decision);
       });
       startTurnTimer(io, gameId);
     }

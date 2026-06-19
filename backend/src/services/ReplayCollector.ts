@@ -8,19 +8,30 @@ import {
   ScoreDetail,
   EventType,
   HexCoord,
-  AntType
+  AntType,
+  AITurnDecision,
+  AIReplayData,
+  GameReplayWithAI
 } from '../../../shared/types';
 
 export class ReplayCollector {
   private turnRecords: TurnRecord[] = [];
   private currentTurnBattles: BattleEventRecord[] = [];
   private currentTurnEcoEvents: EcoEventRecord[] = [];
+  private aiDecisions: Map<string, AITurnDecision[]> = new Map();
   private startTime: number;
   private gameId: string;
 
   constructor(gameId: string) {
     this.gameId = gameId;
     this.startTime = Date.now();
+  }
+
+  recordAITurnDecision(playerId: string, decision: AITurnDecision): void {
+    if (!this.aiDecisions.has(playerId)) {
+      this.aiDecisions.set(playerId, []);
+    }
+    this.aiDecisions.get(playerId)!.push(decision);
   }
 
   clearTurnEvents(): void {
@@ -89,6 +100,49 @@ export class ReplayCollector {
       totalTurns,
       turns: [...this.turnRecords]
     };
+  }
+
+  buildGameReplayWithAI(
+    players: Player[],
+    winnerId: string,
+    scoreDetails: ScoreDetail[],
+    totalTurns: number
+  ): GameReplayWithAI {
+    const baseReplay = this.buildGameReplay(players, winnerId, scoreDetails, totalTurns);
+    
+    const aiReplayData: AIReplayData[] = [];
+    const endTime = Date.now();
+
+    for (const [playerId, decisions] of this.aiDecisions.entries()) {
+      const player = players.find(p => p.id === playerId);
+      if (!player) continue;
+
+      const sortedDecisions = [...decisions].sort((a, b) => a.turn - b.turn);
+      
+      aiReplayData.push({
+        gameId: this.gameId,
+        playerId,
+        playerName: player.name,
+        playerColor: player.color,
+        totalTurns,
+        decisions: sortedDecisions,
+        startTime: this.startTime,
+        endTime
+      });
+    }
+
+    return {
+      ...baseReplay,
+      aiReplayData
+    };
+  }
+
+  getAIReplayData(playerId: string): AITurnDecision[] | undefined {
+    return this.aiDecisions.get(playerId);
+  }
+
+  hasAIReplayData(): boolean {
+    return this.aiDecisions.size > 0;
   }
 
   getStartTime(): number {

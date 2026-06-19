@@ -13,7 +13,14 @@ import {
   AIDifficulty,
   ThreatMatrix,
   AICache,
-  FacilityType
+  FacilityType,
+  AITurnDecision,
+  AntDecision,
+  AntDecisionReason,
+  ProduceDecision,
+  UpgradeDecision,
+  MilitaryRatioCalc,
+  PlayerSnapshot
 } from '../../../shared/types';
 import {
   MAP_SIZE,
@@ -67,28 +74,134 @@ export class AIPlayerController {
     this.map = map;
   }
 
-  generateCommand(state: GameState): PlayerCommand {
+  generateCommand(state: GameState): { command: PlayerCommand; decision: AITurnDecision | null } {
     const player = state.players.find(p => p.id === this.playerId);
     if (!player || player.isEliminated) {
       return {
-        playerId: this.playerId,
-        moveCommands: [],
-        buildCommands: [],
-        produceCommands: [],
-        upgradeCommands: []
+        command: {
+          playerId: this.playerId,
+          moveCommands: [],
+          buildCommands: [],
+          produceCommands: [],
+          upgradeCommands: []
+        },
+        decision: null
       };
     }
 
-    const moveCommands = this.generateMoveCommands(player, state);
-    const produceCommands = this.generateProduceCommands(player, state);
-    const upgradeCommands = this.generateUpgradeCommands(player, state);
+    const threatMatrix = this.getThreatMatrix(player, state);
+    const militaryRatioCalc = this.calculateMilitaryRatioWithDetails(player, state);
+    const militaryRatio = militaryRatioCalc.finalRatio;
+    const economicRatio = 1 - militaryRatio;
+
+    const { moveCommands, antDecisions } = this.generateMoveCommandsWithDecisions(player, state, threatMatrix);
+    const { produceCommands, produceDecisions } = this.generateProduceCommandsWithDecisions(player, state, militaryRatio);
+    const { upgradeCommands, upgradeDecisions } = this.generateUpgradeCommandsWithDecisions(player, state, threatMatrix);
+
+    const validatedMove = this.validateMoveCommands(moveCommands, player);
+    const validatedProduce = this.validateProduceCommands(produceCommands, player);
+    const validatedUpgrade = this.validateUpgradeCommands(upgradeCommands, player);
+
+    const playerSnapshot = this.createPlayerSnapshot(player, state);
+    const mapSnapshot = JSON.parse(JSON.stringify(state.map));
+
+    const decision: AITurnDecision = {
+      turn: state.turn,
+      playerId: this.playerId,
+      playerName: player.name,
+      threatMatrix: { ...threatMatrix },
+      militaryRatioCalc,
+      militaryRatio,
+      economicRatio,
+      antDecisions,
+      produceDecisions,
+      upgradeDecisions,
+      totalFood: player.food,
+      mapSnapshot,
+      playerSnapshot
+    };
 
     return {
-      playerId: this.playerId,
-      moveCommands: this.validateMoveCommands(moveCommands, player),
-      buildCommands: [],
-      produceCommands: this.validateProduceCommands(produceCommands, player),
-      upgradeCommands: this.validateUpgradeCommands(upgradeCommands, player)
+      command: {
+        playerId: this.playerId,
+        moveCommands: validatedMove,
+        buildCommands: [],
+        produceCommands: validatedProduce,
+        upgradeCommands: validatedUpgrade
+      },
+      decision
+    };
+  }
+
+  private createPlayerSnapshot(player: Player, state: GameState): PlayerSnapshot {
+    const territoryCells = this.getPlayerTerritoryCells(player, state);
+    const antCounts: Record<AntType, number> = { worker: 0, soldier: 0, scout: 0 };
+    for (const ant of player.ants) {
+      if (ant.hp > 0) {
+        antCounts[ant.type]++;
+      }
+    }
+    return {
+      playerId: player.id,
+      playerName: player.name,
+      food: player.food,
+      workerCount: antCounts.worker,
+      soldierCount: antCounts.soldier,
+      scoutCount: antCounts.scout,
+      territoryCount: territoryCells.size,
+      hatcheryLevel: player.facilities.hatchery.level,
+      storageLevel: player.facilities.storage.level,
+      barracksLevel: player.facilities.barracks.level,
+      labLevel: player.facilities.lab.level
+    };
+  }
+
+  private calculateMilitaryRatioWithDetails(player: Player, state: GameState): MilitaryRatioCalc {
+    const threatMatrix = this.getThreatMatrix(player, state);
+    const territoryCells = this.getPlayerTerritoryCells(player, state);
+
+    let highThreatCount = 0;
+    for (const key of territoryCells) {
+      const threat = threatMatrix[key] || 0;
+      if (threat > AI_THREAT_THRESHOLD) {
+        highThreatCount++;
+      }
+    }
+
+    const threatIndex = territoryCells.size > 0 ? highThreatCount / territoryCells.size : 0;
+
+    const enemies = state.players.filter(p => p.id !== player.id && !p.isEliminated);
+    let maxNeighborAggression = 0;
+
+    const playerSoldiers = player.ants.filter(a => a.type === 'soldier' && a.hp > 0).length;
+
+    for (const enemy of enemies) {
+      const dist = hexDistance(player.nestPosition, enemy.nestPosition);
+      if (dist <= 15) {
+        const enemySoldiers = enemy.ants.filter(a => a.type === 'soldier' && a.hp > 0).length;
+        const aggression = playerSoldiers > 0 ? Math.min(2.0, enemySoldiers / playerSoldiers) : 2.0;
+        if (aggression > maxNeighborAggression) {
+          maxNeighborAggression = aggression;
+        }
+      }
+    }
+
+    let militaryRatio = Math.min(0.7, Math.max(0.2, threatIndex * 0.5 + maxNeighborAggression * 0.3));
+
+    const maintenanceCost = this.calculateMaintenanceCost(player);
+    const foodLevel = player.food;
+    if (player.food < maintenanceCost * AI_MAINTENANCE_MULTIPLIER) {
+      militaryRatio = 0.1;
+    }
+
+    return {
+      threatIndex,
+      neighborAggression: maxNeighborAggression,
+      highThreatCount,
+      totalTerritoryCount: territoryCells.size,
+      maintenanceCost,
+      foodLevel,
+      finalRatio: militaryRatio
     };
   }
 
@@ -300,44 +413,74 @@ export class AIPlayerController {
     return null;
   }
 
-  private generateMoveCommands(player: Player, state: GameState): MoveCommand[] {
+  private generateMoveCommandsWithDecisions(
+    player: Player, 
+    state: GameState,
+    threatMatrix: ThreatMatrix
+  ): { moveCommands: MoveCommand[]; antDecisions: AntDecision[] } {
     const commands: MoveCommand[] = [];
-    const threatMatrix = this.getThreatMatrix(player, state);
+    const antDecisions: AntDecision[] = [];
 
     for (const ant of player.ants) {
       if (ant.hp <= 0) continue;
 
       let target: HexCoord | null = null;
+      let reason: AntDecisionReason = 'patrol';
+      let reasonDetail = '';
 
       if (ant.type === 'worker') {
-        target = this.getWorkerTarget(ant, player, state);
+        const result = this.getWorkerTargetWithReason(ant, player, state);
+        target = result.target;
+        reason = result.reason;
+        reasonDetail = result.reasonDetail;
       } else if (ant.type === 'soldier') {
-        target = this.getSoldierTarget(ant, player, state, threatMatrix);
+        const result = this.getSoldierTargetWithReason(ant, player, state, threatMatrix);
+        target = result.target;
+        reason = result.reason;
+        reasonDetail = result.reasonDetail;
       } else if (ant.type === 'scout') {
-        target = this.getScoutTarget(ant, player, state);
+        const result = this.getScoutTargetWithReason(ant, player, state);
+        target = result.target;
+        reason = result.reason;
+        reasonDetail = result.reasonDetail;
       }
 
       if (target) {
-        const nextMove = this.findNextMove(ant.position, target, player);
+        const path = this.findPathBFS(ant.position, target, player);
+        const nextMove = path.length > 1 ? path[1] : null;
         if (nextMove) {
           commands.push({
             antId: ant.id,
             target: nextMove
           });
+          antDecisions.push({
+            antId: ant.id,
+            antType: ant.type,
+            startPosition: { ...ant.position },
+            targetPosition: { ...target },
+            path: path.map(p => ({ ...p })),
+            reason,
+            reasonDetail
+          });
         }
       }
     }
 
-    return commands;
+    return { moveCommands: commands, antDecisions };
   }
 
-  private getWorkerTarget(ant: Ant, player: Player, state: GameState): HexCoord | null {
+  private getWorkerTargetWithReason(ant: Ant, player: Player, state: GameState): { target: HexCoord | null; reason: AntDecisionReason; reasonDetail: string } {
     if (ant.carryingFood >= ant.carryCapacity || ant.isReturning) {
-      return player.nestPosition;
+      return {
+        target: player.nestPosition,
+        reason: 'return',
+        reasonDetail: `携带食物 ${ant.carryingFood}/${ant.carryCapacity}，返回蚁巢`
+      };
     }
 
     let nearestFood: HexCoord | null = null;
     let nearestDist = Infinity;
+    let foodAmount = 0;
 
     for (const row of this.map) {
       for (const cell of row) {
@@ -359,17 +502,31 @@ export class AIPlayerController {
           if (dist < nearestDist) {
             nearestDist = dist;
             nearestFood = cell.coord;
+            foodAmount = cell.foodSource.amount;
           }
         }
       }
     }
 
-    return nearestFood;
+    if (nearestFood) {
+      return {
+        target: nearestFood,
+        reason: 'collect',
+        reasonDetail: `前往采集食物，距离 ${nearestDist.toFixed(1)}，食物量 ${foodAmount}`
+      };
+    }
+
+    return {
+      target: player.nestPosition,
+      reason: 'patrol',
+      reasonDetail: '未发现食物源，在蚁巢附近巡逻'
+    };
   }
 
-  private getSoldierTarget(ant: Ant, player: Player, state: GameState, threatMatrix: ThreatMatrix): HexCoord | null {
+  private getSoldierTargetWithReason(ant: Ant, player: Player, state: GameState, threatMatrix: ThreatMatrix): { target: HexCoord | null; reason: AntDecisionReason; reasonDetail: string } {
     let bestTarget: HexCoord | null = null;
     let bestThreat = -Infinity;
+    let bestThreatKey = '';
 
     for (const [key, threat] of Object.entries(threatMatrix)) {
       const coord = parseCoordKey(key);
@@ -378,16 +535,22 @@ export class AIPlayerController {
       if (dist <= 3 && threat > bestThreat) {
         bestThreat = threat;
         bestTarget = coord;
+        bestThreatKey = key;
       }
     }
 
     if (bestTarget && bestThreat > 0) {
-      return bestTarget;
+      return {
+        target: bestTarget,
+        reason: 'chase',
+        reasonDetail: `追击威胁区域 (${bestThreatKey})，威胁值 ${bestThreat.toFixed(2)}`
+      };
     }
 
     const enemies = state.players.filter(p => p.id !== player.id && !p.isEliminated);
     let nearestBorder: HexCoord | null = null;
     let nearestBorderDist = Infinity;
+    let nearestEnemy = '';
 
     for (const row of this.map) {
       for (const cell of row) {
@@ -407,6 +570,7 @@ export class AIPlayerController {
               if (dist < nearestBorderDist) {
                 nearestBorderDist = dist;
                 nearestBorder = cell.coord;
+                nearestEnemy = enemy.name;
               }
               break;
             }
@@ -416,7 +580,11 @@ export class AIPlayerController {
     }
 
     if (nearestBorder) {
-      return nearestBorder;
+      return {
+        target: nearestBorder,
+        reason: 'defend',
+        reasonDetail: `前往与 ${nearestEnemy} 的边境防御，距离蚁巢 ${nearestBorderDist.toFixed(1)}`
+      };
     }
 
     const patrolCells = hexRange(player.nestPosition, 2);
@@ -427,13 +595,22 @@ export class AIPlayerController {
 
     if (validPatrolCells.length > 0) {
       const randomIndex = Math.floor(Math.random() * validPatrolCells.length);
-      return validPatrolCells[randomIndex];
+      const patrolTarget = validPatrolCells[randomIndex];
+      return {
+        target: patrolTarget,
+        reason: 'patrol',
+        reasonDetail: `在蚁巢附近巡逻，随机目标点 (${patrolTarget.q},${patrolTarget.r})`
+      };
     }
 
-    return player.nestPosition;
+    return {
+      target: player.nestPosition,
+      reason: 'patrol',
+      reasonDetail: '驻守蚁巢'
+    };
   }
 
-  private getScoutTarget(ant: Ant, player: Player, state: GameState): HexCoord | null {
+  private getScoutTargetWithReason(ant: Ant, player: Player, state: GameState): { target: HexCoord | null; reason: AntDecisionReason; reasonDetail: string } {
     const territoryCells = this.getPlayerTerritoryCells(player, state);
     const exploredCells = new Set<string>();
 
@@ -463,11 +640,16 @@ export class AIPlayerController {
     }
 
     if (nearestUnexplored) {
-      return nearestUnexplored;
+      return {
+        target: nearestUnexplored,
+        reason: 'explore',
+        reasonDetail: `前往未探索区域 (${nearestUnexplored.q},${nearestUnexplored.r})，距离 ${minDistance.toFixed(1)}`
+      };
     }
 
     let nearestFood: HexCoord | null = null;
     let minFoodDist = Infinity;
+    let foodAmount = 0;
 
     for (const row of this.map) {
       for (const cell of row) {
@@ -476,17 +658,34 @@ export class AIPlayerController {
           if (dist < minFoodDist) {
             minFoodDist = dist;
             nearestFood = cell.coord;
+            foodAmount = cell.foodSource.amount;
           }
         }
       }
     }
 
-    return nearestFood;
+    if (nearestFood) {
+      return {
+        target: nearestFood,
+        reason: 'patrol',
+        reasonDetail: `无未探索区域，前往食物源 (${nearestFood.q},${nearestFood.r}) 巡逻，食物量 ${foodAmount}`
+      };
+    }
+
+    return {
+      target: player.nestPosition,
+      reason: 'patrol',
+      reasonDetail: '无探索目标和食物源，在蚁巢附近巡逻'
+    };
   }
 
-  private generateProduceCommands(player: Player, state: GameState): ProduceCommand[] {
+  private generateProduceCommandsWithDecisions(
+    player: Player, 
+    state: GameState,
+    militaryRatio: number
+  ): { produceCommands: ProduceCommand[]; produceDecisions: ProduceDecision[] } {
     const commands: ProduceCommand[] = [];
-    const militaryRatio = this.calculateMilitaryRatio(player, state);
+    const decisions: ProduceDecision[] = [];
 
     const barracksLevel = player.facilities.barracks.level;
     const totalAnts = player.ants.filter(a => a.hp > 0).length;
@@ -495,19 +694,24 @@ export class AIPlayerController {
 
     let antType: AntType;
     let maxProduce: number;
+    let triggerCondition: string;
 
     if (workerCount < 3) {
       antType = 'worker';
       maxProduce = 3 - workerCount;
+      triggerCondition = `工蚁数量不足 (${workerCount}/3)，优先生产工蚁`;
     } else if (barracksLevel >= 2 && soldierCount < totalAnts * 0.4) {
       antType = 'soldier';
       maxProduce = Math.floor(totalAnts * 0.4) - soldierCount + 1;
+      triggerCondition = `兵营等级 ${barracksLevel} >= 2 且士兵占比 ${(soldierCount/totalAnts).toFixed(2)} < 40%，需要补充士兵`;
     } else if (Math.random() < militaryRatio) {
       antType = 'soldier';
       maxProduce = PlayerFactory.getProductionPerTurn(player);
+      triggerCondition = `军事比例 ${militaryRatio.toFixed(2)} 较高，随机决定生产士兵`;
     } else {
       antType = 'worker';
       maxProduce = PlayerFactory.getProductionPerTurn(player);
+      triggerCondition = `经济比例 ${(1-militaryRatio).toFixed(2)} 较高，随机决定生产工蚁`;
     }
 
     const costPerAnt = AntFactory.getCost(antType);
@@ -516,14 +720,24 @@ export class AIPlayerController {
 
     if (count > 0 && PlayerFactory.canProduceAnt(player, antType, count)) {
       commands.push({ antType, count });
+      decisions.push({
+        antType,
+        count,
+        triggerCondition,
+        cost: costPerAnt * count
+      });
     }
 
-    return commands;
+    return { produceCommands: commands, produceDecisions: decisions };
   }
 
-  private generateUpgradeCommands(player: Player, state: GameState): UpgradeCommand[] {
+  private generateUpgradeCommandsWithDecisions(
+    player: Player, 
+    state: GameState,
+    threatMatrix: ThreatMatrix
+  ): { upgradeCommands: UpgradeCommand[]; upgradeDecisions: UpgradeDecision[] } {
     const commands: UpgradeCommand[] = [];
-    const threatMatrix = this.getThreatMatrix(player, state);
+    const decisions: UpgradeDecision[] = [];
 
     const hasEmergency = Object.entries(threatMatrix).some(([key, threat]) => {
       const coord = parseCoordKey(key);
@@ -532,39 +746,46 @@ export class AIPlayerController {
     });
 
     if (hasEmergency) {
-      return commands;
+      return { upgradeCommands: [], upgradeDecisions: [] };
     }
 
-    const upgradePriority: FacilityType[] = [];
+    const upgradePriority: { type: FacilityType; condition: string }[] = [];
 
     const hatcheryLevel = player.facilities.hatchery.level;
     if (hatcheryLevel < 3) {
-      upgradePriority.push('hatchery');
+      upgradePriority.push({ type: 'hatchery', condition: `孵化场等级 ${hatcheryLevel} < 3，优先升级` });
     }
 
     const storageLevel = player.facilities.storage.level;
     const foodRatio = player.food / player.maxFood;
     if (storageLevel < 3 && foodRatio > 0.7) {
-      upgradePriority.push('storage');
+      upgradePriority.push({ type: 'storage', condition: `仓库等级 ${storageLevel} < 3 且食物储量 ${(foodRatio*100).toFixed(0)}% > 70%，需要升级` });
     }
 
     const barracksLevel = player.facilities.barracks.level;
     if (barracksLevel < 3) {
-      upgradePriority.push('barracks');
+      upgradePriority.push({ type: 'barracks', condition: `兵营等级 ${barracksLevel} < 3，需要升级` });
     }
 
-    for (const facilityType of upgradePriority) {
+    for (const { type: facilityType, condition } of upgradePriority) {
       const facility = player.facilities[facilityType];
       if (facility.level >= FACILITY_STATS[facilityType].maxLevel) continue;
 
       const upgradeCost = PlayerFactory.getUpgradeCost(facilityType, facility.level);
       if (player.food >= upgradeCost * 1.5) {
         commands.push({ facilityType });
+        decisions.push({
+          facilityType,
+          fromLevel: facility.level,
+          toLevel: facility.level + 1,
+          cost: upgradeCost,
+          triggerCondition: condition + `，食物 ${player.food} >= ${(upgradeCost * 1.5).toFixed(0)}`
+        });
         break;
       }
     }
 
-    return commands;
+    return { upgradeCommands: commands, upgradeDecisions: decisions };
   }
 
   private validateMoveCommands(commands: MoveCommand[], player: Player): MoveCommand[] {

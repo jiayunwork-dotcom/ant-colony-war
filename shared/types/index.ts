@@ -246,3 +246,71 @@ export interface AICache {
   visibleCells: Set<string> | null;
   visibleCellsTurn: number;
 }
+
+export type AntDecisionReason = 'patrol' | 'chase' | 'collect' | 'return' | 'explore' | 'defend';
+
+export interface AntDecision {
+  antId: string;
+  antType: AntType;
+  startPosition: HexCoord;
+  targetPosition: HexCoord;
+  path: HexCoord[];
+  reason: AntDecisionReason;
+  reasonDetail: string;
+}
+
+export interface ProduceDecision {
+  antType: AntType;
+  count: number;
+  triggerCondition: string;
+  cost: number;
+}
+
+export interface UpgradeDecision {
+  facilityType: FacilityType;
+  fromLevel: number;
+  toLevel: number;
+  cost: number;
+  triggerCondition: string;
+}
+
+export interface MilitaryRatioCalc {
+  threatIndex: number;
+  neighborAggression: number;
+  highThreatCount: number;
+  totalTerritoryCount: number;
+  maintenanceCost: number;
+  foodLevel: number;
+  finalRatio: number;
+}
+
+export interface AITurnDecision {
+  turn: number;
+  playerId: string;
+  playerName: string;
+  threatMatrix: ThreatMatrix;
+  militaryRatioCalc: MilitaryRatioCalc;
+  militaryRatio: number;
+  economicRatio: number;
+  antDecisions: AntDecision[];
+  produceDecisions: ProduceDecision[];
+  upgradeDecisions: UpgradeDecision[];
+  totalFood: number;
+  mapSnapshot: HexCell[][];
+  playerSnapshot: PlayerSnapshot;
+}
+
+export interface AIReplayData {
+  gameId: string;
+  playerId: string;
+  playerName: string;
+  playerColor: string;
+  totalTurns: number;
+  decisions: AITurnDecision[];
+  startTime: number;
+  endTime: number;
+}
+
+export interface GameReplayWithAI extends GameReplay {
+  aiReplayData: AIReplayData[];
+}
