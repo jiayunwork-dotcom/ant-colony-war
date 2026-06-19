@@ -8,6 +8,7 @@ import {
   NEST_ATTACK_MIN_SOLDIERS
 } from '../../../shared/constants';
 import { hexNeighbors, hexDistance } from '../../../shared/utils/hex';
+import { getCellFromMap } from './MapGenerator';
 
 interface BattleResult {
   attackerKills: number;
@@ -17,25 +18,15 @@ interface BattleResult {
 
 export class BattleSystem {
   private map: HexCell[][];
-  private offset: number;
   private mapSize: number;
 
   constructor(map: HexCell[][], mapSize: number) {
     this.map = map;
     this.mapSize = mapSize;
-    this.offset = Math.floor(mapSize / 2);
   }
 
   private getCell(coord: HexCoord): HexCell | null {
-    const rowIdx = coord.r + this.offset;
-    const colIdx = coord.q + this.offset - Math.floor(coord.r / 2);
-    if (rowIdx >= 0 && rowIdx < this.map.length) {
-      const row = this.map[rowIdx];
-      if (colIdx >= 0 && colIdx < row.length) {
-        return row[colIdx];
-      }
-    }
-    return null;
+    return getCellFromMap(this.map, coord, this.mapSize);
   }
 
   private getTerritoryOwner(coord: HexCoord): string | null {

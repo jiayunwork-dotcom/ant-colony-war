@@ -5,20 +5,27 @@ import { COMMAND_TIME_LIMIT } from '../../../shared/constants';
 
 export function setupSocketHandlers(io: Server): void {
   io.on('connection', (socket: Socket) => {
-    console.log('Client connected:', socket.id);
+    console.log('[Socket] Client connected:', socket.id, 'from', socket.handshake.address);
 
     socket.on('create_room', (data: { playerName: string }, callback) => {
+      console.log('[Socket] create_room received. Socket:', socket.id, 'playerName:', data?.playerName);
       try {
+        console.log('[Socket] Creating room...');
         const game = gameRoomManager.createRoom();
         const gameId = game.getState().id;
         const playerId = socket.id;
+        console.log('[Socket] Room created, gameId:', gameId, 'phase:', game.getState().phase);
 
+        console.log('[Socket] Adding player... playerId:', playerId, 'name:', data.playerName);
         const success = game.addPlayer(playerId, data.playerName);
+        console.log('[Socket] addPlayer result:', success, 'playerCount:', game.getPlayerCount());
 
         if (success) {
           socket.join(gameId);
+          console.log('[Socket] Socket joined room:', gameId);
 
           const state = game.getState();
+          console.log('[Socket] Calling callback with success, players:', state.players.length);
           callback({
             success: true,
             gameId,
@@ -29,10 +36,13 @@ export function setupSocketHandlers(io: Server): void {
           io.to(gameId).emit('player_joined', {
             players: state.players
           });
+          console.log('[Socket] Broadcasted player_joined to room:', gameId);
         } else {
+          console.log('[Socket] addPlayer failed, calling error callback');
           callback({ success: false, error: 'Failed to add player' });
         }
       } catch (error) {
+        console.error('[Socket] create_room error:', error);
         callback({ success: false, error: (error as Error).message });
       }
     });

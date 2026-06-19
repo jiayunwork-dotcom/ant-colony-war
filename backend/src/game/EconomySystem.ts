@@ -7,28 +7,19 @@ import {
 } from '../../../shared/constants';
 import { hexDistance, hexNeighbors, hexLine } from '../../../shared/utils/hex';
 import { AntFactory, PlayerFactory } from './factories';
+import { getCellFromMap } from './MapGenerator';
 
 export class EconomySystem {
   private map: HexCell[][];
-  private offset: number;
   private mapSize: number;
 
   constructor(map: HexCell[][], mapSize: number) {
     this.map = map;
     this.mapSize = mapSize;
-    this.offset = Math.floor(mapSize / 2);
   }
 
   private getCell(coord: HexCoord): HexCell | null {
-    const rowIdx = coord.r + this.offset;
-    const colIdx = coord.q + this.offset - Math.floor(coord.r / 2);
-    if (rowIdx >= 0 && rowIdx < this.map.length) {
-      const row = this.map[rowIdx];
-      if (colIdx >= 0 && colIdx < row.length) {
-        return row[colIdx];
-      }
-    }
-    return null;
+    return getCellFromMap(this.map, coord, this.mapSize);
   }
 
   collectFood(player: Player): { collected: number; messages: string[] } {
@@ -198,27 +189,17 @@ export class EconomySystem {
 
 export class MovementSystem {
   private map: HexCell[][];
-  private offset: number;
   private mapSize: number;
   private pheromoneSystem: any;
 
   constructor(map: HexCell[][], mapSize: number, pheromoneSystem: any) {
     this.map = map;
     this.mapSize = mapSize;
-    this.offset = Math.floor(mapSize / 2);
     this.pheromoneSystem = pheromoneSystem;
   }
 
   private getCell(coord: HexCoord): HexCell | null {
-    const rowIdx = coord.r + this.offset;
-    const colIdx = coord.q + this.offset - Math.floor(coord.r / 2);
-    if (rowIdx >= 0 && rowIdx < this.map.length) {
-      const row = this.map[rowIdx];
-      if (colIdx >= 0 && colIdx < row.length) {
-        return row[colIdx];
-      }
-    }
-    return null;
+    return getCellFromMap(this.map, coord, this.mapSize);
   }
 
   moveAnt(ant: Ant, target: HexCoord, player: Player): boolean {

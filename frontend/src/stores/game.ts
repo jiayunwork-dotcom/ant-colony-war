@@ -56,130 +56,143 @@ export const useGameStore = defineStore('game', () => {
     const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80')
 
     const socketUrl = `${protocol}//${host}:${port}`
+    console.log('[GameStore] Connecting to socket at:', socketUrl)
     socket.value = io(socketUrl, {
       transports: ['websocket', 'polling']
     })
 
     socket.value.on('connect', () => {
       isConnected.value = true
-      console.log('Connected to server')
+      console.log('[GameStore] Connected to server, socket.id:', socket.value?.id)
+    })
+
+    socket.value.on('connect_error', (error) => {
+      isConnected.value = false
+      console.error('[GameStore] Connection error:', error.message)
     })
 
     socket.value.on('disconnect', () => {
       isConnected.value = false
-      console.log('Disconnected from server')
+      console.log('[GameStore] Disconnected from server')
     })
 
     socket.value.on('player_joined', (data: { players: Player[] }) => {
+      console.log('[GameStore] player_joined event, players:', data.players.length)
       if (gameState.value) {
         gameState.value.players = data.players
       }
     })
 
     socket.value.on('player_left', (data: { playerId: string; players: Player[] }) => {
+      console.log('[GameStore] player_left event, playerId:', data.playerId)
       if (gameState.value) {
         gameState.value.players = data.players
       }
     })
 
     socket.value.on('game_started', (data: { state: GameState }) => {
+      console.log('[GameStore] game_started event, turn:', data.state.turn)
       gameState.value = data.state
     })
 
     socket.value.on('turn_processed', (data: { state: GameState }) => {
+      console.log('[GameStore] turn_processed event, turn:', data.state.turn)
       gameState.value = data.state
       selectedAnts.value = []
       moveTarget.value = null
     })
 
     socket.value.on('player_ready', (data: { playerId: string; players: Player[] }) => {
+      console.log('[GameStore] player_ready event, playerId:', data.playerId)
       if (gameState.value) {
         gameState.value.players = data.players
       }
     })
 
     socket.value.on('time_warning', (data: { remaining: number }) => {
-      console.log('Time warning:', data.remaining, 'seconds')
+      console.log('[GameStore] Time warning:', data.remaining, 'seconds')
+    })
+  }
+
+  function emitWithTimeout<T = any>(event: string, data: any, timeoutMs: number = 10000): Promise<T> {
+    return new Promise((resolve) => {
+      if (!socket.value) {
+        resolve({ success: false, error: 'Not connected' } as T)
+        return
+      }
+
+      const timeoutId = setTimeout(() => {
+        console.error(`[GameStore] Timeout waiting for response to event: ${event}`)
+        resolve({ success: false, error: `请求超时：${event}，请检查网络连接或重试` } as T)
+      }, timeoutMs)
+
+      console.log(`[GameStore] Emitting event: ${event}, data:`, data)
+      socket.value.emit(event, data, (response: any) => {
+        clearTimeout(timeoutId)
+        console.log(`[GameStore] Got response for event: ${event}, response:`, response)
+        resolve(response)
+      })
     })
   }
 
   function createRoom(playerName: string): Promise<{ success: boolean; error?: string }> {
-    return new Promise((resolve) => {
-      if (!socket.value) {
-        resolve({ success: false, error: 'Not connected' })
-        return
+    return emitWithTimeout('create_room', { playerName }, 15000).then((response: any) => {
+      if (response?.success) {
+        gameId.value = response.gameId
+        playerId.value = response.playerId
+        gameState.value = response.state
+        isHost.value = true
+        console.log('[GameStore] createRoom success, gameId:', response.gameId)
+      } else {
+        console.error('[GameStore] createRoom failed:', response?.error)
       }
-
-      socket.value.emit('create_room', { playerName }, (response: any) => {
-        if (response.success) {
-          gameId.value = response.gameId
-          playerId.value = response.playerId
-          gameState.value = response.state
-          isHost.value = true
-        }
-        resolve(response)
-      })
+      return response
     })
   }
 
   function joinRoom(roomId: string, playerName: string): Promise<{ success: boolean; error?: string }> {
-    return new Promise((resolve) => {
-      if (!socket.value) {
-        resolve({ success: false, error: 'Not connected' })
-        return
+    return emitWithTimeout('join_room', { gameId: roomId, playerName }, 15000).then((response: any) => {
+      if (response?.success) {
+        gameId.value = response.gameId
+        playerId.value = response.playerId
+        gameState.value = response.state
+        isHost.value = false
+        console.log('[GameStore] joinRoom success, gameId:', response.gameId)
+      } else {
+        console.error('[GameStore] joinRoom failed:', response?.error)
       }
-
-      socket.value.emit('join_room', { gameId: roomId, playerName }, (response: any) => {
-        if (response.success) {
-          gameId.value = response.gameId
-          playerId.value = response.playerId
-          gameState.value = response.state
-          isHost.value = false
-        }
-        resolve(response)
-      })
+      return response
     })
   }
 
   function startGame(): Promise<{ success: boolean; error?: string }> {
-    return new Promise((resolve) => {
-      if (!socket.value || !gameId.value) {
-        resolve({ success: false, error: 'Not connected or no game' })
-        return
+    return emitWithTimeout('start_game', { gameId: gameId.value }, 15000).then((response: any) => {
+      if (response?.success && response.state) {
+        gameState.value = response.state
+        console.log('[GameStore] startGame success')
       }
-
-      socket.value.emit('start_game', { gameId: gameId.value }, (response: any) => {
-        if (response.success && response.state) {
-          gameState.value = response.state
-        }
-        resolve(response)
-      })
+      return response
     })
   }
 
   function submitCommand(command: Partial<PlayerCommand>): Promise<{ success: boolean; error?: string }> {
-    return new Promise((resolve) => {
-      if (!socket.value || !gameId.value || !playerId.value) {
-        resolve({ success: false, error: 'Not connected or no game' })
-        return
-      }
+    if (!socket.value || !gameId.value || !playerId.value) {
+      return Promise.resolve({ success: false, error: 'Not connected or no game' })
+    }
 
-      const fullCommand: PlayerCommand = {
-        playerId: playerId.value,
-        moveCommands: command.moveCommands || [],
-        buildCommands: command.buildCommands || [],
-        produceCommands: command.produceCommands || [],
-        upgradeCommands: command.upgradeCommands || [],
-        chooseMutation: command.chooseMutation
-      }
+    const fullCommand: PlayerCommand = {
+      playerId: playerId.value,
+      moveCommands: command.moveCommands || [],
+      buildCommands: command.buildCommands || [],
+      produceCommands: command.produceCommands || [],
+      upgradeCommands: command.upgradeCommands || [],
+      chooseMutation: command.chooseMutation
+    }
 
-      socket.value.emit('submit_command', {
-        gameId: gameId.value,
-        command: fullCommand
-      }, (response: any) => {
-        resolve(response)
-      })
-    })
+    return emitWithTimeout('submit_command', {
+      gameId: gameId.value,
+      command: fullCommand
+    }, 15000)
   }
 
   function moveAnts(target: HexCoord): Promise<{ success: boolean; error?: string }> {

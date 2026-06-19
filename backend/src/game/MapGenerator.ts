@@ -2,6 +2,36 @@ import { HexCell, HexCoord, TerrainType, FoodSource } from '../../../shared/type
 import { MAP_SIZE, FOOD_SOURCE_MAX, INITIAL_FOOD_SOURCES } from '../../../shared/constants';
 import { hexDistance, hexRange, isValidHex } from '../../../shared/utils/hex';
 
+export function getCellFromMap(map: HexCell[][], coord: HexCoord, mapSize: number = MAP_SIZE): HexCell | null {
+  const offset = Math.floor(mapSize / 2);
+  const rowIdx = coord.r + offset;
+  if (rowIdx < 0 || rowIdx >= map.length) return null;
+
+  const row = map[rowIdx];
+  const colIdx = coord.q + offset;
+  if (colIdx < 0 || colIdx >= row.length) return null;
+
+  const cell = row[colIdx];
+  if (!cell) return null;
+  if (cell.coord.q !== coord.q || cell.coord.r !== coord.r) {
+    const found = row.find(c => c.coord.q === coord.q && c.coord.r === coord.r);
+    return found || null;
+  }
+  return cell;
+}
+
+export function setCellInMap(map: HexCell[][], coord: HexCoord, cell: HexCell, mapSize: number = MAP_SIZE): void {
+  const offset = Math.floor(mapSize / 2);
+  const rowIdx = coord.r + offset;
+  if (rowIdx < 0 || rowIdx >= map.length) return;
+
+  const row = map[rowIdx];
+  const colIdx = coord.q + offset;
+  if (colIdx < 0 || colIdx >= row.length) return;
+
+  map[rowIdx][colIdx] = cell;
+}
+
 export class MapGenerator {
   private size: number;
   private map: HexCell[][];
@@ -51,8 +81,11 @@ export class MapGenerator {
   private generateRocks(): void {
     const rockCount = Math.floor(this.size * this.size * 0.08);
     let placed = 0;
+    let attempts = 0;
+    const maxAttempts = rockCount * 50;
 
-    while (placed < rockCount) {
+    while (placed < rockCount && attempts < maxAttempts) {
+      attempts++;
       const coord = this.getRandomHex();
       const cell = this.getCell(coord);
       if (cell && cell.terrain === 'ground' && !this.isNearEdge(coord, 5)) {
@@ -75,8 +108,11 @@ export class MapGenerator {
   private generateWater(): void {
     const waterCount = Math.floor(this.size * this.size * 0.05);
     let placed = 0;
+    let attempts = 0;
+    const maxAttempts = waterCount * 50;
 
-    while (placed < waterCount) {
+    while (placed < waterCount && attempts < maxAttempts) {
+      attempts++;
       const coord = this.getRandomHex();
       const cell = this.getCell(coord);
       if (cell && cell.terrain === 'ground' && !this.isNearEdge(coord, 8)) {
@@ -101,8 +137,11 @@ export class MapGenerator {
 
   private generateFoodSources(): void {
     let placed = 0;
+    let attempts = 0;
+    const maxAttempts = INITIAL_FOOD_SOURCES * 50;
 
-    while (placed < INITIAL_FOOD_SOURCES) {
+    while (placed < INITIAL_FOOD_SOURCES && attempts < maxAttempts) {
+      attempts++;
       const coord = this.getRandomHex();
       const cell = this.getCell(coord);
       if (cell && cell.terrain === 'ground' && !cell.foodSource && !this.isNearEdge(coord, 6)) {
@@ -120,6 +159,7 @@ export class MapGenerator {
   public spawnFoodSource(amount: number = FOOD_SOURCE_MAX): HexCoord | null {
     let attempts = 0;
     while (attempts < 100) {
+      attempts++;
       const coord = this.getRandomHex();
       const cell = this.getCell(coord);
       if (cell && cell.terrain === 'ground' && !cell.foodSource && !this.isNearEdge(coord, 5)) {
@@ -130,7 +170,6 @@ export class MapGenerator {
         cell.terrain = 'food';
         return coord;
       }
-      attempts++;
     }
     return null;
   }
@@ -170,26 +209,11 @@ export class MapGenerator {
   }
 
   public getCell(coord: HexCoord): HexCell | null {
-    const rowIdx = coord.r + this.offset;
-    const colIdx = coord.q + this.offset - Math.floor(coord.r / 2);
-    if (rowIdx >= 0 && rowIdx < this.map.length) {
-      const row = this.map[rowIdx];
-      if (colIdx >= 0 && colIdx < row.length) {
-        return row[colIdx];
-      }
-    }
-    return null;
+    return getCellFromMap(this.map, coord, this.size);
   }
 
   public setCell(coord: HexCoord, cell: HexCell): void {
-    const rowIdx = coord.r + this.offset;
-    const colIdx = coord.q + this.offset - Math.floor(coord.r / 2);
-    if (rowIdx >= 0 && rowIdx < this.map.length) {
-      const row = this.map[rowIdx];
-      if (colIdx >= 0 && colIdx < row.length) {
-        this.map[rowIdx][colIdx] = cell;
-      }
-    }
+    setCellInMap(this.map, coord, cell, this.size);
   }
 
   private forEachCell(callback: (cell: HexCell) => void): void {
@@ -210,7 +234,16 @@ export class MapGenerator {
     const positions: HexCoord[] = [];
     const halfSize = Math.floor(this.size / 2) - 3;
 
-    if (playerCount === 4) {
+    if (playerCount <= 1) {
+      positions.push({ q: 0, r: 0 });
+    } else if (playerCount === 2) {
+      positions.push({ q: -halfSize, r: 0 });
+      positions.push({ q: halfSize, r: 0 });
+    } else if (playerCount === 3) {
+      positions.push({ q: -halfSize, r: 0 });
+      positions.push({ q: halfSize, r: 0 });
+      positions.push({ q: 0, r: -halfSize });
+    } else if (playerCount === 4) {
       positions.push({ q: -halfSize, r: 0 });
       positions.push({ q: halfSize, r: 0 });
       positions.push({ q: 0, r: -halfSize });

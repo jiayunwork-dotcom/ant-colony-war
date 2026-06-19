@@ -11,8 +11,11 @@ export class GameRoomManager {
   }
 
   createRoom(gameId?: string): GameEngine {
+    console.log('[GameRoomManager] Creating new room...');
     const game = new GameEngine(gameId);
+    console.log('[GameRoomManager] GameEngine instantiated, gameId:', game.getState().id, 'players:', game.getState().players.length, 'mapSize:', game.getState().mapSize);
     this.rooms.set(game.getState().id, game);
+    console.log('[GameRoomManager] Room added to manager, total rooms:', this.rooms.size);
     return game;
   }
 

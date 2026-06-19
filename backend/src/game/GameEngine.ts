@@ -44,10 +44,14 @@ export class GameEngine {
   private commands: Map<string, PlayerCommand>;
 
   constructor(gameId?: string) {
+    console.log('[GameEngine] Starting initialization...');
     this.commands = new Map();
 
+    console.log('[GameEngine] Creating MapGenerator with size', MAP_SIZE);
     this.mapGenerator = new MapGenerator(MAP_SIZE);
+    console.log('[GameEngine] Generating map...');
     const map = this.mapGenerator.generate();
+    console.log('[GameEngine] Map generated, rows:', map.length, 'total cells:', map.reduce((acc, r) => acc + r.length, 0));
 
     this.state = {
       id: gameId || uuidv4(),
@@ -66,12 +70,14 @@ export class GameEngine {
       predator: undefined
     };
 
+    console.log('[GameEngine] Initializing systems...');
     this.pheromoneSystem = new PheromoneSystem(map, MAP_SIZE);
     this.battleSystem = new BattleSystem(map, MAP_SIZE);
     this.economySystem = new EconomySystem(map, MAP_SIZE);
     this.movementSystem = new MovementSystem(map, MAP_SIZE, this.pheromoneSystem);
     this.eventSystem = new EventSystem(map, MAP_SIZE);
     this.evolutionSystem = new EvolutionSystem();
+    console.log('[GameEngine] Initialization complete, gameId:', this.state.id);
   }
 
   getState(): GameState {
