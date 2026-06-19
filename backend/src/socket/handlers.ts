@@ -293,49 +293,61 @@ export function setupSocketHandlers(io: Server): void {
     });
 
     socket.on('add_ai_player', (data: { gameId: string; difficulty: AIDifficulty }, callback) => {
+      console.log('[Socket] add_ai_player RECEIVED from socket:', socket.id, 'data:', JSON.stringify(data));
       try {
         const game = gameRoomManager.getRoom(data.gameId);
         if (!game) {
+          console.log('[Socket] add_ai_player FAILED: Game not found, gameId:', data.gameId);
           callback({ success: false, error: 'Game not found' });
           return;
         }
 
         const state = game.getState();
+        console.log('[Socket] add_ai_player host check. state.hostId:', state.hostId, 'socket.id:', socket.id, 'match:', state.hostId === socket.id);
         if (state.hostId !== socket.id) {
+          console.log('[Socket] add_ai_player FAILED: Only host can add AI');
           callback({ success: false, error: 'Only the host can add AI players' });
           return;
         }
 
+        console.log('[Socket] add_ai_player calling aiManager.addAIPlayer with difficulty:', data.difficulty);
         const success = aiManager.addAIPlayer(game, data.difficulty);
         if (success) {
           const state = game.getState();
+          console.log('[Socket] add_ai_player SUCCESS. Players now:', state.players.length, 'players:', state.players.map(p => p.name));
           io.to(data.gameId).emit('player_joined', {
             players: state.players
           });
           callback({ success: true, state });
         } else {
+          console.log('[Socket] add_ai_player FAILED: aiManager returned false');
           callback({ success: false, error: 'Failed to add AI player' });
         }
       } catch (error) {
+        console.error('[Socket] add_ai_player ERROR:', error);
         callback({ success: false, error: (error as Error).message });
       }
     });
 
     socket.on('remove_ai_player', (data: { gameId: string; playerId: string }, callback) => {
+      console.log('[Socket] remove_ai_player RECEIVED from socket:', socket.id, 'data:', JSON.stringify(data));
       try {
         const game = gameRoomManager.getRoom(data.gameId);
         if (!game) {
+          console.log('[Socket] remove_ai_player FAILED: Game not found');
           callback({ success: false, error: 'Game not found' });
           return;
         }
 
         const state = game.getState();
         if (state.hostId !== socket.id) {
+          console.log('[Socket] remove_ai_player FAILED: Only host can remove AI');
           callback({ success: false, error: 'Only the host can remove AI players' });
           return;
         }
 
         if (!aiManager.isAIPlayer(data.gameId, data.playerId)) {
+          console.log('[Socket] remove_ai_player FAILED: Player is not an AI, playerId:', data.playerId);
           callback({ success: false, error: 'Player is not an AI' });
           return;
         }
@@ -344,6 +356,7 @@ export function setupSocketHandlers(io: Server): void {
         game.removePlayer(data.playerId);
 
         const newState = game.getState();
+        console.log('[Socket] remove_ai_player SUCCESS. Players now:', newState.players.length);
         io.to(data.gameId).emit('player_left', {
           playerId: data.playerId,
           players: newState.players
@@ -351,6 +364,7 @@ export function setupSocketHandlers(io: Server): void {
 
         callback({ success: true, state: newState });
       } catch (error) {
+        console.error('[Socket] remove_ai_player ERROR:', error);
         callback({ success: false, error: (error as Error).message });
       }
     });

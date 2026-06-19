@@ -198,22 +198,30 @@ export const useGameStore = defineStore('game', () => {
   }
 
   function addAIPlayer(difficulty: AIDifficulty): Promise<{ success: boolean; error?: string }> {
+    console.log('[GameStore] addAIPlayer called. difficulty:', difficulty, 'gameId:', gameId.value, 'socket connected:', !!socket.value)
     return emitWithTimeout('add_ai_player', { gameId: gameId.value, difficulty }, 10000).then((response: any) => {
+      console.log('[GameStore] addAIPlayer response:', response)
       if (response?.success && response.state) {
         gameState.value = response.state
         updateAIPlayerIds()
         console.log('[GameStore] addAIPlayer success')
+      } else if (response?.error) {
+        console.error('[GameStore] addAIPlayer failed with error:', response.error)
       }
       return response
     })
   }
 
   function removeAIPlayer(playerId: string): Promise<{ success: boolean; error?: string }> {
+    console.log('[GameStore] removeAIPlayer called. playerId:', playerId, 'gameId:', gameId.value, 'socket connected:', !!socket.value)
     return emitWithTimeout('remove_ai_player', { gameId: gameId.value, playerId }, 10000).then((response: any) => {
+      console.log('[GameStore] removeAIPlayer response:', response)
       if (response?.success && response.state) {
         gameState.value = response.state
         updateAIPlayerIds()
         console.log('[GameStore] removeAIPlayer success')
+      } else if (response?.error) {
+        console.error('[GameStore] removeAIPlayer failed with error:', response.error)
       }
       return response
     })

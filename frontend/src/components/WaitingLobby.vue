@@ -36,8 +36,9 @@
               <button
                 v-if="isHost && isAIPlayer(player.id)"
                 class="btn-remove-ai"
-                @click="$emit('removeAI', player.id)"
+                @click="handleRemoveAIClick(player.id)"
                 title="移除AI"
+                type="button"
               >
                 ✕
               </button>
@@ -55,7 +56,7 @@
           </select>
           <button
             class="btn btn-add-ai"
-            @click="$emit('addAI', selectedDifficulty)"
+            @click="handleAddAIClick"
             :disabled="players.length >= 6"
           >
             ➕ 添加AI
@@ -121,12 +122,12 @@ const props = defineProps<{
   aiPlayerIds: string[]
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'toggleReady'): void
   (e: 'startGame'): void
   (e: 'leaveRoom'): void
-  (e: 'addAI', difficulty: AIDifficulty): void
-  (e: 'removeAI', playerId: string): void
+  (e: 'add-ai', difficulty: AIDifficulty): void
+  (e: 'remove-ai', playerId: string): void
 }>()
 
 const selectedDifficulty = ref<AIDifficulty>('normal')
@@ -153,6 +154,16 @@ const isCurrentPlayerAI = computed(() => {
 
 function isAIPlayer(playerId: string): boolean {
   return props.aiPlayerIds.includes(playerId)
+}
+
+function handleAddAIClick() {
+  console.log('[WaitingLobby] handleAddAIClick called, difficulty:', selectedDifficulty.value)
+  emit('add-ai', selectedDifficulty.value)
+}
+
+function handleRemoveAIClick(playerId: string) {
+  console.log('[WaitingLobby] handleRemoveAIClick called, playerId:', playerId)
+  emit('remove-ai', playerId)
 }
 </script>
 

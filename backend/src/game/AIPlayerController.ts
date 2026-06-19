@@ -163,14 +163,11 @@ export class AIPlayerController {
         }
 
         let nearbyEnemySoldiers = 0;
-        const nearbyCells = hexRange(cell.coord, 2);
-        for (const nearbyCoord of nearbyCells) {
-          for (const enemy of enemyPlayers) {
-            for (const ant of enemy.ants) {
-              if (ant.hp > 0 && ant.type === 'soldier') {
-                if (hexDistance(ant.position, nearbyCoord) <= 2) {
-                  nearbyEnemySoldiers++;
-                }
+        for (const enemy of enemyPlayers) {
+          for (const ant of enemy.ants) {
+            if (ant.hp > 0 && ant.type === 'soldier') {
+              if (hexDistance(ant.position, cell.coord) <= 2) {
+                nearbyEnemySoldiers++;
               }
             }
           }
@@ -449,42 +446,42 @@ export class AIPlayerController {
       }
     }
 
-    let farthestUnexplored: HexCoord | null = null;
-    let maxDistance = -1;
+    let nearestUnexplored: HexCoord | null = null;
+    let minDistance = Infinity;
 
     for (const row of this.map) {
       for (const cell of row) {
         const key = coordKey(cell.coord);
         if (!exploredCells.has(key) && !territoryCells.has(key)) {
           const dist = hexDistance(ant.position, cell.coord);
-          if (dist > maxDistance) {
-            maxDistance = dist;
-            farthestUnexplored = cell.coord;
+          if (dist < minDistance) {
+            minDistance = dist;
+            nearestUnexplored = cell.coord;
           }
         }
       }
     }
 
-    if (farthestUnexplored) {
-      return farthestUnexplored;
+    if (nearestUnexplored) {
+      return nearestUnexplored;
     }
 
-    let farthestFood: HexCoord | null = null;
-    let maxFoodDist = -1;
+    let nearestFood: HexCoord | null = null;
+    let minFoodDist = Infinity;
 
     for (const row of this.map) {
       for (const cell of row) {
         if (cell.foodSource && cell.foodSource.amount > 0) {
           const dist = hexDistance(ant.position, cell.coord);
-          if (dist > maxFoodDist) {
-            maxFoodDist = dist;
-            farthestFood = cell.coord;
+          if (dist < minFoodDist) {
+            minFoodDist = dist;
+            nearestFood = cell.coord;
           }
         }
       }
     }
 
-    return farthestFood;
+    return nearestFood;
   }
 
   private generateProduceCommands(player: Player, state: GameState): ProduceCommand[] {

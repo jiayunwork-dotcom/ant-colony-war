@@ -200,11 +200,15 @@ async function handleLeaveRoom() {
 }
 
 async function handleAddAI(difficulty: AIDifficulty) {
-  await gameStore.addAIPlayer(difficulty)
+  console.log('[App] handleAddAI called with difficulty:', difficulty)
+  const result = await gameStore.addAIPlayer(difficulty)
+  console.log('[App] handleAddAI result:', result)
 }
 
 async function handleRemoveAI(playerId: string) {
-  await gameStore.removeAIPlayer(playerId)
+  console.log('[App] handleRemoveAI called with playerId:', playerId)
+  const result = await gameStore.removeAIPlayer(playerId)
+  console.log('[App] handleRemoveAI result:', result)
 }
 
 function handleRestart() {
