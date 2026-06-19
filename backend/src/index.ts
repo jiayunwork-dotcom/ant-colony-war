@@ -3,6 +3,7 @@ import http from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import { setupSocketHandlers } from './socket/handlers';
+import { gameRoomManager } from './services/GameRoomManager';
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
 const NODE_ENV = process.env.NODE_ENV || 'development';
@@ -22,6 +23,11 @@ app.get('/', (_req, res) => {
     status: 'running',
     environment: NODE_ENV
   });
+});
+
+app.get('/api/rooms', (_req, res) => {
+  const rooms = gameRoomManager.getAvailableRooms();
+  res.json({ success: true, rooms });
 });
 
 const server = http.createServer(app);

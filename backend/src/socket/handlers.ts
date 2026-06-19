@@ -21,6 +21,8 @@ export function setupSocketHandlers(io: Server): void {
         console.log('[Socket] addPlayer result:', success, 'playerCount:', game.getPlayerCount());
 
         if (success) {
+          game.getState().hostId = playerId;
+
           socket.join(gameId);
           console.log('[Socket] Socket joined room:', gameId);
 
@@ -55,6 +57,17 @@ export function setupSocketHandlers(io: Server): void {
           return;
         }
 
+        const state = game.getState();
+        if (state.phase !== 'waiting') {
+          callback({ success: false, error: 'Game already started' });
+          return;
+        }
+
+        if (state.players.length >= 6) {
+          callback({ success: false, error: 'Room is full' });
+          return;
+        }
+
         const playerId = socket.id;
         const success = game.addPlayer(playerId, data.playerName);
 
@@ -80,11 +93,54 @@ export function setupSocketHandlers(io: Server): void {
       }
     });
 
+    socket.on('toggle_ready', (data: { gameId: string }, callback) => {
+      try {
+        const game = gameRoomManager.getRoom(data.gameId);
+        if (!game) {
+          callback({ success: false, error: 'Game not found' });
+          return;
+        }
+
+        const player = game.getPlayer(socket.id);
+        if (!player) {
+          callback({ success: false, error: 'Player not found' });
+          return;
+        }
+
+        player.lobbyReady = !player.lobbyReady;
+
+        const state = game.getState();
+        io.to(data.gameId).emit('lobby_ready_update', {
+          players: state.players
+        });
+
+        callback({ success: true, lobbyReady: player.lobbyReady });
+      } catch (error) {
+        callback({ success: false, error: (error as Error).message });
+      }
+    });
+
     socket.on('start_game', (data: { gameId: string }, callback) => {
       try {
         const game = gameRoomManager.getRoom(data.gameId);
         if (!game) {
           callback({ success: false, error: 'Game not found' });
+          return;
+        }
+
+        const state = game.getState();
+        if (state.hostId !== socket.id) {
+          callback({ success: false, error: 'Only the host can start the game' });
+          return;
+        }
+
+        if (state.players.length < 4) {
+          callback({ success: false, error: 'At least 4 players required' });
+          return;
+        }
+
+        if (!state.players.every(p => p.lobbyReady)) {
+          callback({ success: false, error: 'All players must be ready' });
           return;
         }
 
@@ -153,13 +209,25 @@ export function setupSocketHandlers(io: Server): void {
       try {
         const game = gameRoomManager.getRoom(data.gameId);
         if (game) {
+          const state = game.getState();
+          const wasHost = state.hostId === socket.id;
+
           game.removePlayer(socket.id);
           socket.leave(data.gameId);
 
-          io.to(data.gameId).emit('player_left', {
-            playerId: socket.id,
-            players: game.getState().players
-          });
+          if (wasHost && state.players.length > 0) {
+            state.hostId = state.players[0].id;
+          }
+
+          if (state.players.length === 0) {
+            gameRoomManager.removeRoom(data.gameId);
+          } else {
+            io.to(data.gameId).emit('player_left', {
+              playerId: socket.id,
+              players: state.players,
+              newHostId: wasHost ? state.hostId : undefined
+            });
+          }
         }
 
         callback({ success: true });
@@ -174,15 +242,22 @@ export function setupSocketHandlers(io: Server): void {
       for (const game of gameRoomManager.getAllRooms()) {
         if (game.getPlayer(socket.id)) {
           const gameId = game.getState().id;
+          const wasHost = game.getState().hostId === socket.id;
+
           game.removePlayer(socket.id);
 
-          io.to(gameId).emit('player_left', {
-            playerId: socket.id,
-            players: game.getState().players
-          });
+          if (wasHost && game.getState().players.length > 0) {
+            game.getState().hostId = game.getState().players[0].id;
+          }
 
           if (game.getPlayerCount() === 0) {
             gameRoomManager.removeRoom(gameId);
+          } else {
+            io.to(gameId).emit('player_left', {
+              playerId: socket.id,
+              players: game.getState().players,
+              newHostId: wasHost ? game.getState().hostId : undefined
+            });
           }
           break;
         }

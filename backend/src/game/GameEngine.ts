@@ -67,7 +67,8 @@ export class GameEngine {
       eventLog: [],
       winner: null,
       commandTimeLimit: COMMAND_TIME_LIMIT,
-      predator: undefined
+      predator: undefined,
+      hostId: ''
     };
 
     console.log('[GameEngine] Initializing systems...');

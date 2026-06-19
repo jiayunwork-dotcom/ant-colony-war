@@ -1,5 +1,5 @@
 import { GameEngine } from '../game/GameEngine';
-import { PlayerCommand, GameState } from '../../../shared/types';
+import { PlayerCommand, GameState, RoomInfo } from '../../../shared/types';
 
 export class GameRoomManager {
   private rooms: Map<string, GameEngine>;
@@ -34,6 +34,24 @@ export class GameRoomManager {
 
   getAllRooms(): GameEngine[] {
     return Array.from(this.rooms.values());
+  }
+
+  getAvailableRooms(): RoomInfo[] {
+    const rooms: RoomInfo[] = [];
+    for (const game of this.rooms.values()) {
+      const state = game.getState();
+      if (state.phase === 'waiting' && state.players.length < 6) {
+        const host = state.players.length > 0 ? state.players[0] : null;
+        rooms.push({
+          gameId: state.id,
+          hostName: host ? host.name : '未知',
+          playerCount: state.players.length,
+          maxPlayers: 6,
+          phase: state.phase
+        });
+      }
+    }
+    return rooms;
   }
 
   startTurnTimer(gameId: string, onTurnEnd: () => void, duration: number = 30000): void {

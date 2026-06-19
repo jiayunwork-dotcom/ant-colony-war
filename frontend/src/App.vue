@@ -4,8 +4,22 @@
       v-if="!gameState"
       :on-create-room="handleCreateRoom"
       :on-join-room="handleJoinRoom"
+      :rooms="roomList"
+      :on-quick-join="handleQuickJoin"
       @room-created="onRoomCreated"
       @room-joined="onRoomJoined"
+    />
+
+    <WaitingLobby
+      v-else-if="gameState.phase === 'waiting'"
+      :game-id="gameState.id"
+      :player-id="playerId"
+      :host-id="gameState.hostId"
+      :players="gameState.players"
+      :is-host="isHost"
+      @toggle-ready="handleToggleReady"
+      @start-game="handleStartGame"
+      @leave-room="handleLeaveRoom"
     />
 
     <template v-else>
@@ -64,6 +78,7 @@ import { onMounted, onUnmounted, ref, computed, watch } from 'vue'
 import { useGameStore } from './stores/game'
 import { storeToRefs } from 'pinia'
 import GameLobby from './components/GameLobby.vue'
+import WaitingLobby from './components/WaitingLobby.vue'
 import TopBar from './components/TopBar.vue'
 import HexMap from './components/HexMap.vue'
 import ControlPanel from './components/ControlPanel.vue'
@@ -80,13 +95,15 @@ const {
   isMyTurn,
   timeRemaining,
   sortedEventLog,
-  selectedAnts
+  selectedAnts,
+  roomList
 } = storeToRefs(gameStore)
 
 let timerInterval: number | null = null
 
 onMounted(() => {
   gameStore.connect()
+  gameStore.startRoomListPolling()
   startTimer()
 })
 
@@ -94,6 +111,7 @@ onUnmounted(() => {
   if (timerInterval) {
     clearInterval(timerInterval)
   }
+  gameStore.stopRoomListPolling()
   gameStore.disconnect()
 })
 
@@ -110,10 +128,20 @@ async function handleJoinRoom(roomId: string, playerName: string) {
   return await gameStore.joinRoom(roomId, playerName)
 }
 
+async function handleQuickJoin(roomId: string, playerName: string) {
+  return await gameStore.joinRoom(roomId, playerName)
+}
+
 function onRoomCreated(_gameId: string, _playerId: string) {
+  gameStore.stopRoomListPolling()
 }
 
 function onRoomJoined(_gameId: string, _playerId: string) {
+  gameStore.stopRoomListPolling()
+}
+
+async function handleToggleReady() {
+  await gameStore.toggleReady()
 }
 
 async function handleStartGame() {
@@ -153,9 +181,15 @@ function clearSelection() {
   gameStore.clearSelection()
 }
 
+async function handleLeaveRoom() {
+  await gameStore.leaveRoom()
+  gameStore.startRoomListPolling()
+}
+
 function handleRestart() {
   gameStore.disconnect()
   gameStore.connect()
+  gameStore.startRoomListPolling()
 }
 
 watch(gameState, (newState) => {

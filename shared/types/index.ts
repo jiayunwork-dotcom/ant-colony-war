@@ -65,6 +65,7 @@ export interface Player {
   totalKills: number;
   isEliminated: boolean;
   isReady: boolean;
+  lobbyReady: boolean;
 }
 
 export type GamePhase = 'waiting' | 'command' | 'settling' | 'result' | 'ended';
@@ -94,6 +95,7 @@ export interface GameState {
   winner: string | null;
   commandTimeLimit: number;
   predator?: Predator;
+  hostId: string;
 }
 
 export interface Predator {
@@ -146,3 +148,11 @@ export const PLAYER_COLORS = [
   '#FFEAA7',
   '#DDA0DD'
 ];
+
+export interface RoomInfo {
+  gameId: string;
+  hostName: string;
+  playerCount: number;
+  maxPlayers: number;
+  phase: GamePhase;
+}

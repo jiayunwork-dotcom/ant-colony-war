@@ -94,7 +94,8 @@ export class PlayerFactory {
       totalFoodCollected: 0,
       totalKills: 0,
       isEliminated: false,
-      isReady: false
+      isReady: false,
+      lobbyReady: false
     };
 
     for (let i = 0; i < 3; i++) {

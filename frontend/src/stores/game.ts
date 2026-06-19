@@ -10,7 +10,8 @@ import type {
   MoveCommand,
   AntType,
   FacilityType,
-  MutationType
+  MutationType,
+  RoomInfo
 } from '@shared/types'
 
 export const useGameStore = defineStore('game', () => {
@@ -22,6 +23,8 @@ export const useGameStore = defineStore('game', () => {
   const selectedAnts = ref<string[]>([])
   const moveTarget = ref<HexCoord | null>(null)
   const isHost = ref(false)
+  const roomList = ref<RoomInfo[]>([])
+  let roomListTimer: number | null = null
 
   const currentPlayer = computed(() => {
     if (!gameState.value || !playerId.value) return null
@@ -83,8 +86,21 @@ export const useGameStore = defineStore('game', () => {
       }
     })
 
-    socket.value.on('player_left', (data: { playerId: string; players: Player[] }) => {
+    socket.value.on('player_left', (data: { playerId: string; players: Player[]; newHostId?: string }) => {
       console.log('[GameStore] player_left event, playerId:', data.playerId)
+      if (gameState.value) {
+        gameState.value.players = data.players
+        if (data.newHostId) {
+          gameState.value.hostId = data.newHostId
+          if (data.newHostId === playerId.value) {
+            isHost.value = true
+          }
+        }
+      }
+    })
+
+    socket.value.on('lobby_ready_update', (data: { players: Player[] }) => {
+      console.log('[GameStore] lobby_ready_update event')
       if (gameState.value) {
         gameState.value.players = data.players
       }
@@ -156,13 +172,17 @@ export const useGameStore = defineStore('game', () => {
         gameId.value = response.gameId
         playerId.value = response.playerId
         gameState.value = response.state
-        isHost.value = false
+        isHost.value = gameState.value.hostId === response.playerId
         console.log('[GameStore] joinRoom success, gameId:', response.gameId)
       } else {
         console.error('[GameStore] joinRoom failed:', response?.error)
       }
       return response
     })
+  }
+
+  function toggleReady(): Promise<{ success: boolean; error?: string }> {
+    return emitWithTimeout('toggle_ready', { gameId: gameId.value }, 10000)
   }
 
   function startGame(): Promise<{ success: boolean; error?: string }> {
@@ -242,7 +262,48 @@ export const useGameStore = defineStore('game', () => {
     moveTarget.value = target
   }
 
+  async function fetchRoomList() {
+    try {
+      const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:'
+      const host = window.location.hostname
+      const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80')
+      const url = `${protocol}//${host}:${port}/api/rooms`
+      const response = await fetch(url)
+      const data = await response.json()
+      if (data.success) {
+        roomList.value = data.rooms
+      }
+    } catch (e) {
+      console.error('[GameStore] Failed to fetch room list:', e)
+    }
+  }
+
+  function startRoomListPolling() {
+    stopRoomListPolling()
+    fetchRoomList()
+    roomListTimer = window.setInterval(() => {
+      fetchRoomList()
+    }, 5000)
+  }
+
+  function stopRoomListPolling() {
+    if (roomListTimer) {
+      clearInterval(roomListTimer)
+      roomListTimer = null
+    }
+  }
+
+  function leaveRoom(): Promise<{ success: boolean; error?: string }> {
+    const result = emitWithTimeout('leave_room', { gameId: gameId.value }, 10000)
+    gameState.value = null
+    gameId.value = ''
+    playerId.value = ''
+    isHost.value = false
+    return result
+  }
+
   function disconnect() {
+    stopRoomListPolling()
     if (socket.value) {
       socket.value.disconnect()
       socket.value = null
@@ -252,6 +313,7 @@ export const useGameStore = defineStore('game', () => {
     gameId.value = ''
     playerId.value = ''
     selectedAnts.value = []
+    isHost.value = false
   }
 
   return {
@@ -263,6 +325,7 @@ export const useGameStore = defineStore('game', () => {
     selectedAnts,
     moveTarget,
     isHost,
+    roomList,
     currentPlayer,
     otherPlayers,
     isMyTurn,
@@ -271,6 +334,7 @@ export const useGameStore = defineStore('game', () => {
     connect,
     createRoom,
     joinRoom,
+    toggleReady,
     startGame,
     submitCommand,
     moveAnts,
@@ -280,6 +344,10 @@ export const useGameStore = defineStore('game', () => {
     selectAnt,
     clearSelection,
     setMoveTarget,
+    fetchRoomList,
+    startRoomListPolling,
+    stopRoomListPolling,
+    leaveRoom,
     disconnect
   }
 })

@@ -93,6 +93,35 @@
         </div>
       </div>
 
+      <div class="room-list-section">
+        <div class="room-list-header">
+          <h3 class="room-list-title">🏠 当前房间</h3>
+          <span class="room-count">{{ rooms.length }} 个房间</span>
+        </div>
+
+        <div v-if="rooms.length === 0" class="room-list-empty">
+          暂无等待中的房间，创建一个吧！
+        </div>
+
+        <div v-else class="room-list">
+          <div
+            v-for="room in rooms"
+            :key="room.gameId"
+            class="room-item"
+            @click="quickJoin(room.gameId)"
+          >
+            <div class="room-info">
+              <span class="room-id">{{ room.gameId.slice(0, 8) }}</span>
+              <span class="room-host">{{ room.hostName }}</span>
+            </div>
+            <div class="room-meta">
+              <span class="room-players">{{ room.playerCount }}/{{ room.maxPlayers }}</span>
+              <span class="room-status">等待中</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="game-rules">
         <h3 class="rules-title">🎮 游戏简介</h3>
         <div class="rules-grid">
@@ -127,7 +156,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
+import type { RoomInfo } from '@shared/types'
 
 const emit = defineEmits<{
   (e: 'roomCreated', gameId: string, playerId: string): void
@@ -138,6 +168,8 @@ const emit = defineEmits<{
 const props = defineProps<{
   onCreateRoom: (name: string) => Promise<{ success: boolean; error?: string; gameId?: string; playerId?: string }>
   onJoinRoom: (roomId: string, name: string) => Promise<{ success: boolean; error?: string; gameId?: string; playerId?: string }>
+  rooms: RoomInfo[]
+  onQuickJoin: (roomId: string, name: string) => Promise<{ success: boolean; error?: string; gameId?: string; playerId?: string }>
 }>()
 
 const activeTab = ref<'create' | 'join'>('create')
@@ -176,6 +208,30 @@ async function joinRoom() {
 
   try {
     const result = await props.onJoinRoom(roomId.value.trim(), joinPlayerName.value.trim())
+    if (result.success && result.gameId && result.playerId) {
+      emit('roomJoined', result.gameId, result.playerId)
+    } else {
+      errorMessage.value = result.error || '加入房间失败'
+    }
+  } catch (e) {
+    errorMessage.value = '加入房间时出错'
+  } finally {
+    isJoining.value = false
+  }
+}
+
+async function quickJoin(targetRoomId: string) {
+  if (!joinPlayerName.value.trim() && !playerName.value.trim()) {
+    errorMessage.value = '请先输入你的名字'
+    return
+  }
+
+  const name = joinPlayerName.value.trim() || playerName.value.trim()
+  isJoining.value = true
+  errorMessage.value = ''
+
+  try {
+    const result = await props.onQuickJoin(targetRoomId, name)
     if (result.success && result.gameId && result.playerId) {
       emit('roomJoined', result.gameId, result.playerId)
     } else {
@@ -226,8 +282,10 @@ async function joinRoom() {
 .lobby-container {
   position: relative;
   z-index: 1;
-  width: 420px;
+  width: 480px;
   max-width: 90%;
+  max-height: 95vh;
+  overflow-y: auto;
 }
 
 .lobby-header {
@@ -367,8 +425,104 @@ async function joinRoom() {
   text-align: center;
 }
 
+.room-list-section {
+  margin-top: 20px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 12px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.room-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.room-list-title {
+  font-size: 14px;
+  color: #4ecdc4;
+  margin: 0;
+}
+
+.room-count {
+  font-size: 12px;
+  color: #888;
+}
+
+.room-list-empty {
+  text-align: center;
+  color: #666;
+  font-size: 13px;
+  padding: 20px 0;
+}
+
+.room-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.room-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.room-item:hover {
+  background: rgba(78, 205, 196, 0.1);
+  border-color: rgba(78, 205, 196, 0.3);
+}
+
+.room-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.room-id {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e0e0e0;
+  font-family: monospace;
+}
+
+.room-host {
+  font-size: 11px;
+  color: #888;
+}
+
+.room-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.room-players {
+  font-size: 14px;
+  font-weight: 700;
+  color: #4ecdc4;
+}
+
+.room-status {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 10px;
+  background: rgba(78, 205, 196, 0.15);
+  color: #4ecdc4;
+}
+
 .game-rules {
-  margin-top: 30px;
+  margin-top: 20px;
   padding: 20px;
   background: rgba(0, 0, 0, 0.3);
   border-radius: 12px;
